@@ -180,7 +180,13 @@ function NewJobModal({ctx,reload,onClose}){const [productId,setProductId]=useSta
   );
 }
 function MobileManager({ jobs, ctx, reload }) {
+  const [filter, setFilter] = useState("Open");
+
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const shownJobs =
+    filter === "Open"
+      ? openJobs
+      : jobs.filter((j) => ctx.status(j.status_id)?.name === filter);
 
   const getStatusId = (name) =>
     ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
@@ -204,12 +210,10 @@ function MobileManager({ jobs, ctx, reload }) {
     const actual = prompt("Actual hours used?", job.book_hours);
     if (!actual) return;
 
-    const completedId = getStatusId("Completed");
-
     await supabase
       .from("jobs")
       .update({
-        status_id: completedId,
+        status_id: getStatusId("Completed"),
         actual_hours: Number(actual),
         qc: "Yes",
         updated_at: new Date().toISOString(),
@@ -220,24 +224,38 @@ function MobileManager({ jobs, ctx, reload }) {
   }
 
   return (
-    <section className="mobileManager">
-      <div className="mobileHeader">
-        <p>H&H Production</p>
-        <h2>Manager Floor View</h2>
-        <span>{openJobs.length} open jobs</span>
+    <section className="mobileApp">
+      <header className="mobileAppHeader">
+        <div>
+          <p>H&H Production</p>
+          <h1>Manager View</h1>
+        </div>
+        <strong>{openJobs.length}</strong>
+      </header>
+
+      <div className="mobileTabs">
+        {["Open", "Scheduled", "In Progress", "Waiting", "QC"].map((x) => (
+          <button
+            key={x}
+            className={filter === x ? "active" : ""}
+            onClick={() => setFilter(x)}
+          >
+            {x}
+          </button>
+        ))}
       </div>
 
-      <div className="mobileJobStack">
-        {openJobs.map((job) => {
+      <div className="mobileJobList">
+        {shownJobs.map((job) => {
           const product = ctx.product(job.product_id);
           const tech = ctx.tech(job.technician_id);
           const status = ctx.status(job.status_id);
 
           return (
-            <article className="mobileJobCard" key={job.id}>
+            <article className="mobileJob" key={job.id}>
               <div className="mobileJobTop">
                 <span
-                  className="mobileStatus"
+                  className="mobilePill"
                   style={{
                     background: `${status?.color || "#64748b"}22`,
                     color: status?.color || "#64748b",
@@ -245,20 +263,38 @@ function MobileManager({ jobs, ctx, reload }) {
                 >
                   {status?.name}
                 </span>
-                <strong>{tech?.name}</strong>
+                <b>{tech?.name}</b>
               </div>
 
-              <h3>{job.vehicle}</h3>
+              <h2>{job.vehicle}</h2>
               <p>{product?.name}</p>
 
-              <div className="mobileJobMeta">
-                <span>Start: {String(job.start_time).slice(0, 5)}</span>
-                <span>Book: {job.book_hours} hrs</span>
+              <div className="mobileMetaGrid">
+                <div>
+                  <span>Start</span>
+                  <strong>{String(job.start_time || "").slice(0, 5)}</strong>
+                </div>
+                <div>
+                  <span>Book</span>
+                  <strong>{job.book_hours} hrs</strong>
+                </div>
+                <div>
+                  <span>Customer</span>
+                  <strong>{job.customer}</strong>
+                </div>
+                <div>
+                  <span>QC</span>
+                  <strong>{job.qc || "N/A"}</strong>
+                </div>
               </div>
 
-              <div className="mobileButtons">
-                <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
-                <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
+              <div className="mobileActionGrid">
+                <button onClick={() => updateStatus(job, "In Progress")}>
+                  Start
+                </button>
+                <button onClick={() => updateStatus(job, "Waiting")}>
+                  Waiting
+                </button>
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button className="complete" onClick={() => completeJob(job)}>
                   Complete
@@ -267,6 +303,13 @@ function MobileManager({ jobs, ctx, reload }) {
             </article>
           );
         })}
+
+        {!shownJobs.length && (
+          <div className="mobileEmpty">
+            <h2>No jobs here</h2>
+            <p>Change tabs or add a new job from desktop.</p>
+          </div>
+        )}
       </div>
     </section>
   );
