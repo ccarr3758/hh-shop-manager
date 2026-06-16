@@ -3,6 +3,7 @@ import { LayoutDashboard, CalendarDays, Smartphone, ClipboardList, UserCheck, Wr
 import { supabase } from './supabaseClient';
 
 const nav = [
+  ["Mobile Manager", Smartphone],
   ['Dashboard', LayoutDashboard], ['Schedule', CalendarDays], ['Foreman', Smartphone], ['Production Log', ClipboardList],
   ['Technicians', UserCheck], ['Products', Wrench], ['Admin', Settings], ['Cloud Status', Database]
 ];
@@ -104,6 +105,7 @@ export default function App(){
     <main>
       <header className="topbar"><div><p className="eyebrow">H&H Truck & Outdoor</p><h2>{view}</h2></div><div className="topActions"><button onClick={loadAll}><RefreshCw size={17}/> Refresh</button><button className="primary" onClick={()=>setShowNew(true)}><Plus size={18}/> New Job</button></div></header>
       {view==='Dashboard' && <Dashboard jobs={state.jobs} ctx={ctx} metrics={metrics}/>} 
+      {view === "Mobile Manager" && <MobileManager jobs={state.jobs} ctx={ctx} reload={loadAll} />}
       {view==='Schedule' && <Schedule jobs={state.jobs} ctx={ctx}/>} 
       {view==='Foreman' && <Foreman jobs={state.jobs} ctx={ctx} reload={loadAll}/>} 
       {view==='Production Log' && <ProductionLog jobs={state.jobs} ctx={ctx} reload={loadAll}/>} 
@@ -167,6 +169,98 @@ function NewJobModal({ctx,reload,onClose}){const [productId,setProductId]=useSta
         );
       })}
     </div>
+  );
+}
+function MobileManager({ jobs, ctx, reload }) {
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+
+  const getStatusId = (name) =>
+    ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
+
+  async function updateStatus(job, statusName) {
+    const statusId = getStatusId(statusName);
+    if (!statusId) return alert(`Missing status: ${statusName}`);
+
+    await supabase
+      .from("jobs")
+      .update({
+        status_id: statusId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+
+    await reload();
+  }
+
+  async function completeJob(job) {
+    const actual = prompt("Actual hours used?", job.book_hours);
+    if (!actual) return;
+
+    const completedId = getStatusId("Completed");
+
+    await supabase
+      .from("jobs")
+      .update({
+        status_id: completedId,
+        actual_hours: Number(actual),
+        qc: "Yes",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+
+    await reload();
+  }
+
+  return (
+    <section className="mobileManager">
+      <div className="mobileHeader">
+        <p>H&H Production</p>
+        <h2>Manager Floor View</h2>
+        <span>{openJobs.length} open jobs</span>
+      </div>
+
+      <div className="mobileJobStack">
+        {openJobs.map((job) => {
+          const product = ctx.product(job.product_id);
+          const tech = ctx.tech(job.technician_id);
+          const status = ctx.status(job.status_id);
+
+          return (
+            <article className="mobileJobCard" key={job.id}>
+              <div className="mobileJobTop">
+                <span
+                  className="mobileStatus"
+                  style={{
+                    background: `${status?.color || "#64748b"}22`,
+                    color: status?.color || "#64748b",
+                  }}
+                >
+                  {status?.name}
+                </span>
+                <strong>{tech?.name}</strong>
+              </div>
+
+              <h3>{job.vehicle}</h3>
+              <p>{product?.name}</p>
+
+              <div className="mobileJobMeta">
+                <span>Start: {String(job.start_time).slice(0, 5)}</span>
+                <span>Book: {job.book_hours} hrs</span>
+              </div>
+
+              <div className="mobileButtons">
+                <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
+                <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
+                <button onClick={() => updateStatus(job, "QC")}>QC</button>
+                <button className="complete" onClick={() => completeJob(job)}>
+                  Complete
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 function Kpi({title,value,caption}){return <article className="kpi"><span>{title}</span><strong>{value}</strong><p>{caption}</p></article>}
