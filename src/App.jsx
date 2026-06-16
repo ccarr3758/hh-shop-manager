@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+
 import { LayoutDashboard, CalendarDays, Smartphone, ClipboardList, UserCheck, Wrench, Settings, Database, Plus, RefreshCw, Edit3, Trash2, Save, X } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -101,12 +101,8 @@ export default function App(){
       <div className="brand"><div className="brandLogo">H&H</div><div><h1>Production Manager</h1><p>Live cloud shop command center</p></div></div>
       <nav>{nav.map(([name,Icon])=><button
   key={name}
-  className={`sidebarButton ${view === name ? "active" : ""}`}
-  onClick={() => setView(name)}
->
-  <Icon size={18} />
-  <span>{name}</span>
-</button>
+  className={`sidebarButton ${view===name?'active':''}`}
+  onClick={()=>setView(name)}
 ><Icon size={18}/><span>{name}</span></button>)}</nav>
       <div className="sideCard"><small>Cloud connected</small><strong>{state.company?.name}</strong><p>Supabase is now the source of truth.</p></div>
     </aside>
@@ -180,13 +176,7 @@ function NewJobModal({ctx,reload,onClose}){const [productId,setProductId]=useSta
   );
 }
 function MobileManager({ jobs, ctx, reload }) {
-  const [filter, setFilter] = useState("Open");
-
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
-  const shownJobs =
-    filter === "Open"
-      ? openJobs
-      : jobs.filter((j) => ctx.status(j.status_id)?.name === filter);
 
   const getStatusId = (name) =>
     ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
@@ -210,10 +200,12 @@ function MobileManager({ jobs, ctx, reload }) {
     const actual = prompt("Actual hours used?", job.book_hours);
     if (!actual) return;
 
+    const completedId = getStatusId("Completed");
+
     await supabase
       .from("jobs")
       .update({
-        status_id: getStatusId("Completed"),
+        status_id: completedId,
         actual_hours: Number(actual),
         qc: "Yes",
         updated_at: new Date().toISOString(),
@@ -224,38 +216,24 @@ function MobileManager({ jobs, ctx, reload }) {
   }
 
   return (
-    <section className="mobileApp">
-      <header className="mobileAppHeader">
-        <div>
-          <p>H&H Production</p>
-          <h1>Manager View</h1>
-        </div>
-        <strong>{openJobs.length}</strong>
-      </header>
-
-      <div className="mobileTabs">
-        {["Open", "Scheduled", "In Progress", "Waiting", "QC"].map((x) => (
-          <button
-            key={x}
-            className={filter === x ? "active" : ""}
-            onClick={() => setFilter(x)}
-          >
-            {x}
-          </button>
-        ))}
+    <section className="mobileManager">
+      <div className="mobileHeader">
+        <p>H&H Production</p>
+        <h2>Manager Floor View</h2>
+        <span>{openJobs.length} open jobs</span>
       </div>
 
-      <div className="mobileJobList">
-        {shownJobs.map((job) => {
+      <div className="mobileJobStack">
+        {openJobs.map((job) => {
           const product = ctx.product(job.product_id);
           const tech = ctx.tech(job.technician_id);
           const status = ctx.status(job.status_id);
 
           return (
-            <article className="mobileJob" key={job.id}>
+            <article className="mobileJobCard" key={job.id}>
               <div className="mobileJobTop">
                 <span
-                  className="mobilePill"
+                  className="mobileStatus"
                   style={{
                     background: `${status?.color || "#64748b"}22`,
                     color: status?.color || "#64748b",
@@ -263,38 +241,20 @@ function MobileManager({ jobs, ctx, reload }) {
                 >
                   {status?.name}
                 </span>
-                <b>{tech?.name}</b>
+                <strong>{tech?.name}</strong>
               </div>
 
-              <h2>{job.vehicle}</h2>
+              <h3>{job.vehicle}</h3>
               <p>{product?.name}</p>
 
-              <div className="mobileMetaGrid">
-                <div>
-                  <span>Start</span>
-                  <strong>{String(job.start_time || "").slice(0, 5)}</strong>
-                </div>
-                <div>
-                  <span>Book</span>
-                  <strong>{job.book_hours} hrs</strong>
-                </div>
-                <div>
-                  <span>Customer</span>
-                  <strong>{job.customer}</strong>
-                </div>
-                <div>
-                  <span>QC</span>
-                  <strong>{job.qc || "N/A"}</strong>
-                </div>
+              <div className="mobileJobMeta">
+                <span>Start: {String(job.start_time).slice(0, 5)}</span>
+                <span>Book: {job.book_hours} hrs</span>
               </div>
 
-              <div className="mobileActionGrid">
-                <button onClick={() => updateStatus(job, "In Progress")}>
-                  Start
-                </button>
-                <button onClick={() => updateStatus(job, "Waiting")}>
-                  Waiting
-                </button>
+              <div className="mobileButtons">
+                <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
+                <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button className="complete" onClick={() => completeJob(job)}>
                   Complete
@@ -303,13 +263,6 @@ function MobileManager({ jobs, ctx, reload }) {
             </article>
           );
         })}
-
-        {!shownJobs.length && (
-          <div className="mobileEmpty">
-            <h2>No jobs here</h2>
-            <p>Change tabs or add a new job from desktop.</p>
-          </div>
-        )}
       </div>
     </section>
   );
@@ -317,4 +270,4 @@ function MobileManager({ jobs, ctx, reload }) {
 function Kpi({title,value,caption}){return <article className="kpi"><span>{title}</span><strong>{value}</strong><p>{caption}</p></article>}
 function Panel({title,chip,children}){return <section className="panel"><div className="panelHead"><h3>{title}</h3><span>{chip}</span></div>{children}</section>}
 function StatusPill({status}){return <span className="pill" style={{background:hexSoft(status?.color),color:status?.color}}>{status?.name||'Unknown'}</span>}
-function Metric({label,value,className=''}){return <div className="metric"><span>{label}</span><strong className={className}>{value}</strong></div>}
+function Metric({label,value,className=''}){return <div className="metric"><span>{label}</span><strong className={cla
