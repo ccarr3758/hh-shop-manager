@@ -161,14 +161,14 @@ export default function App() {
 
         <nav>
           {nav.map(([name, Icon]) => (
-            <button
-              key={name}
-              className={`sidebarButton ${view === name ? "active" : ""}`}
-              onClick={() => setView(name)}
-            >
-              <Icon size={18} />
-              <span>{name}</span>
-            </button>
+          <button
+  key={name}
+  className={`sidebarButton ${view === name ? "active" : ""}`}
+  onClick={() => setView(name)}
+>
+  <Icon size={18} />
+  <span>{name}</span>
+</button>
           ))}
         </nav>
 
