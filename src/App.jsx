@@ -99,7 +99,11 @@ export default function App(){
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><div className="brandLogo">H&H</div><div><h1>Production Manager</h1><p>Live cloud shop command center</p></div></div>
-      <nav>{nav.map(([name,Icon])=><button key={name} className={view===name?'active':''} onClick={()=>setView(name)}><Icon size={18}/><span>{name}</span></button>)}</nav>
+      <nav>{nav.map(([name,Icon])=><button
+  key={name}
+  className={`sidebarButton ${view===name?'active':''}`}
+  onClick={()=>setView(name)}
+><Icon size={18}/><span>{name}</span></button>)}</nav>
       <div className="sideCard"><small>Cloud connected</small><strong>{state.company?.name}</strong><p>Supabase is now the source of truth.</p></div>
     </aside>
     <main>
