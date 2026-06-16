@@ -104,3 +104,16 @@
   background: #16a34a;
   color: white;
 }
+.sidebar nav button {
+  color: #f8fafc !important;
+}
+
+.sidebar nav button svg {
+  color: #f97316 !important;
+  stroke: #f97316 !important;
+}
+
+.sidebar nav button.active svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
