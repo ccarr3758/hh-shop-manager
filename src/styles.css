@@ -161,3 +161,23 @@
   padding: 40px 20px;
   color: #cbd5e1;
 }
+.sidebar nav button {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+}
+
+.sidebar nav button span {
+    display: inline !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: auto !important;
+    color: #ffffff !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+}
+
+.sidebar nav button svg {
+    flex-shrink: 0;
+}
