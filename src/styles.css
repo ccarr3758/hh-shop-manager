@@ -123,3 +123,52 @@
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
+button:not(.primary):not(.sidebarButton) {
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 9px 11px;
+  font-weight: 800;
+}
+
+.sidebar nav .sidebarButton {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: #f8fafc !important;
+  padding: 13px 14px !important;
+  border-radius: 16px !important;
+  font-weight: 850 !important;
+  box-shadow: none !important;
+}
+
+.sidebar nav .sidebarButton svg {
+  color: #f97316 !important;
+  stroke: #f97316 !important;
+  flex-shrink: 0 !important;
+}
+
+.sidebar nav .sidebarButton span {
+  display: inline !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  color: #f8fafc !important;
+  font-size: 15px !important;
+  white-space: nowrap !important;
+}
+
+.sidebar nav .sidebarButton.active {
+  background: linear-gradient(135deg, #f97316, #fb923c) !important;
+  color: white !important;
+  border-color: rgba(255,255,255,.25) !important;
+  box-shadow: 0 12px 28px rgba(249,115,22,.32) !important;
+}
+
+.sidebar nav .sidebarButton.active svg,
+.sidebar nav .sidebarButton.active span {
+  color: white !important;
+  stroke: white !important;
+}
