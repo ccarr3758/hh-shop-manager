@@ -1,0 +1,3355 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  CalendarDays,
+  ClipboardList,
+  Database,
+  Edit3,
+  LayoutDashboard,
+  Plus,
+  RefreshCw,
+  Save,
+  Settings,
+  Smartphone,
+  UserCheck,
+  Wrench,
+  X,
+} from "lucide-react";
+import { supabase } from "./supabaseClient";
+
+const nav = [
+  ["Performance", BarChart3],
+  ["Mobile Manager", Smartphone],
+  ["Dashboard", LayoutDashboard],
+  ["Schedule", CalendarDays],
+  ["Outlook Calendar", CalendarDays],
+  ["Foreman", Smartphone],
+  ["Production Log", ClipboardList],
+  ["Technicians", UserCheck],
+  ["Products", Wrench],
+  ["Admin", Settings],
+  ["Cloud Status", Database],
+];
+
+export default function App() {
+  const [view, setView] = useState("Mobile Manager");
+  const [showNewJob, setShowNewJob] = useState(false);
+  const [editingJob, setEditingJob] = useState(null);
+  const [state, setState] = useState(emptyState());
+  const [loading, setLoading] = useState(true);
+  const [cloudError, setCloudError] = useState("");
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [access, setAccess] = useState(() => loadAccess());
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    setCloudError("");
+
+    try {
+      if (!supabase) {
+        throw new Error("Supabase environment variables are missing.");
+      }
+
+      const company = await getCompany();
+      const companyId = company.id;
+
+      let [
+        laborRates,
+        technicians,
+        categories,
+        statuses,
+        delayReasons,
+        products,
+        shopSettings,
+        jobs,
+      ] = await Promise.all([
+        fetchTable("labor_rates", companyId),
+        fetchTable("technicians", companyId),
+        fetchTable("categories", companyId),
+        fetchTable("statuses", companyId),
+        fetchTable("delay_reasons", companyId),
+        fetchTable("products", companyId),
+        fetchTable("shop_settings", companyId),
+        fetchJobs(companyId),
+      ]);
+
+      jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
+
+      setState({
+        company,
+        laborRates,
+        technicians,
+        categories,
+        statuses,
+        delayReasons,
+        products,
+        shopSettings: shopSettings[0] || null,
+        jobs,
+      });
+    } catch (err) {
+      console.error(err);
+      setCloudError(err.message || "Failed to load Supabase data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !state.company?.id) return;
+
+    const channel = supabase
+      .channel("hhpm-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "jobs", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "technicians", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "products", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "categories", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [state.company?.id]);
+
+  const ctx = useMemo(() => makeContext(state), [state]);
+  const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
+  const visibleJobs = useMemo(() => filterJobsForAccess(state.jobs, access), [state.jobs, access]);
+  const dailyJobs = useMemo(() => jobsForDate(visibleJobs, selectedDate), [visibleJobs, selectedDate]);
+  const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx), [dailyJobs, ctx]);
+
+  useEffect(() => {
+    if (!allowedViewNames.includes(view)) setView(allowedViewNames[0] || "Mobile Manager");
+  }, [allowedViewNames, view]);
+
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="loading">
+        <div className="brandLogo">H&H</div>
+        <h2>Loading production manager...</h2>
+      </div>
+    );
+  }
+
+  if (cloudError) {
+    return (
+      <div className="errorScreen">
+        <div className="panel errorPanel">
+          <h1>Cloud connection issue</h1>
+          <p>{cloudError}</p>
+          <button className="primary" onClick={loadAll}>
+            <RefreshCw size={18} /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!access) {
+    return <AccessGate technicians={state.technicians} onSave={setAccess} />;
+  }
+
+  return (
+    <div className={`app ${isMobile ? "phoneShell" : ""}`}>
+      <MobileStyles />
+      {!isMobile && (
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brandLogo">H&H</div>
+          <div>
+            <h1>Production Manager</h1>
+            <p>Live cloud shop command center</p>
+          </div>
+        </div>
+
+        <nav>
+          {nav.filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon]) => (
+          <button
+  key={name}
+  className={`sidebarButton ${view === name ? "active" : ""}`}
+  onClick={() => setView(name)}
+>
+  <Icon size={18} />
+  <span>{name}</span>
+</button>
+          ))}
+        </nav>
+
+        <div className="sideCard">
+          <small>Cloud connected</small>
+          <strong>{state.company?.name || "H&H"}</strong>
+          <p>Jobs, techs, products, and admin settings load from Supabase.</p>
+        </div>
+      </aside>
+      )}
+
+      <main className={isMobile ? "phoneMain" : ""}>
+        {isMobile ? (
+          <header className="phoneHeader">
+            <div>
+              <p className="eyebrow">H&H Truck & Outdoor</p>
+              <h2>{view}</h2>
+              <input className="phoneDatePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+            </div>
+            <button className="phoneIconButton" onClick={loadAll} aria-label="Refresh">
+              <RefreshCw size={20} />
+            </button>
+          </header>
+        ) : (
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">H&H Truck & Outdoor</p>
+              <h2>{view}</h2>
+            </div>
+            <div className="topActions">
+              <input className="datePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+              <button onClick={loadAll}>
+                <RefreshCw size={17} /> Refresh
+              </button>
+              <button className="primary" onClick={() => setShowNewJob(true)}>
+                <Plus size={18} /> New Job
+              </button>
+            </div>
+          </header>
+        )}
+
+        {view === "Performance" && (
+  <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} />
+)}
+        {view === "Mobile Manager" && (
+          <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} />
+        )}
+        {view === "Dashboard" && <Dashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />}
+        {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
+        {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
+        {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
+        {view === "Production Log" && <ProductionLog jobs={visibleJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} />}
+        {view === "Technicians" && <Technicians jobs={visibleJobs} ctx={ctx} />}
+        {view === "Products" && <Products ctx={ctx} reload={loadAll} />}
+        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} />}
+        {view === "Cloud Status" && <CloudStatus state={state} />}
+
+        {showNewJob && <NewJobModal onClose={() => setShowNewJob(false)} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
+        {editingJob && (
+          <EditJobModal
+            job={editingJob}
+            ctx={ctx}
+            reload={loadAll}
+            onClose={() => setEditingJob(null)}
+          />
+        )}
+
+        {isMobile && (
+          <>
+            <button className="phoneFab" onClick={() => setShowNewJob(true)} aria-label="New Job">
+              <Plus size={26} />
+            </button>
+            <nav className="phoneBottomNav">
+              {[
+                ["Mobile Manager", Smartphone, "Floor"],
+                ["Dashboard", LayoutDashboard, "Dash"],
+                ["Schedule", CalendarDays, "Schedule"],
+                ["Outlook Calendar", CalendarDays, "Outlook"],
+                ["Production Log", ClipboardList, "Log"],
+                ["Admin", Settings, "Admin"],
+              ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
+                <button
+                  key={name}
+                  className={view === name ? "active" : ""}
+                  onClick={() => setView(name)}
+                >
+                  <Icon size={20} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+
+function MobileStyles() {
+  return (
+    <style>{`
+      .scheduleWrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .scheduleWrap .schedule { min-width: 760px; }
+      .currentTimeLine { position: absolute; left: 0; right: 0; height: 0; border-top: 3px solid #ef4444; z-index: 35; pointer-events: none; box-shadow: 0 0 0 1px rgba(239, 68, 68, .16); }
+      .currentTimeLine span { position: sticky; left: 8px; display: inline-block; transform: translateY(-50%); padding: 4px 8px; border-radius: 999px; background: #ef4444; color: #fff; font-size: 11px; font-weight: 900; letter-spacing: .03em; box-shadow: 0 6px 14px rgba(239, 68, 68, .32); }
+      .miniJobOverdue { outline: 2px solid #ef4444; background: #fee2e2 !important; }
+      .miniJobFinishingSoon { outline: 2px solid #f59e0b; background: #fef3c7 !important; }
+      .miniJobQc { outline: 2px solid #2563eb; }
+      .techTimelineRecords { margin-top: 16px; }
+      .techTimelineHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+      .techTimelineHeader h3 { margin: 0; }
+      .techTimelineHeader span { color: #64748b; font-size: 12px; font-weight: 800; }
+      .techTimelineList { display: grid; gap: 8px; }
+      .techTimelineRow { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid rgba(15, 23, 42, .08); border-radius: 14px; background: #f8fafc; }
+      .techTimelineDate { font-size: 12px; font-weight: 900; color: #64748b; }
+      .techTimelineMain strong { display: block; color: #0f172a; }
+      .techTimelineMain span { display: block; margin-top: 2px; color: #64748b; font-size: 12px; font-weight: 700; }
+      .techTimelineStats { text-align: right; }
+      .techTimelineStats strong { display: block; font-size: 15px; }
+      .techTimelineStats span { display: block; color: #64748b; font-size: 12px; font-weight: 800; }
+
+      .outlookGrid { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(320px, 1.1fr); gap: 14px; align-items: start; }
+      .outlookForm { display: grid; gap: 10px; }
+      .outlookForm label { display: grid; gap: 5px; font-size: 12px; font-weight: 900; color: #475569; }
+      .outlookForm input, .outlookForm textarea, .outlookForm select { width: 100%; border: 1px solid rgba(15,23,42,.12); border-radius: 12px; padding: 10px 12px; font: inherit; background: #fff; color: #0f172a; }
+      .outlookForm textarea { min-height: 92px; resize: vertical; }
+      .outlookHelp { margin: 6px 0 0; color: #64748b; font-size: 12px; line-height: 1.45; }
+      .outlookList { display: grid; gap: 10px; }
+      .outlookCard { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid rgba(15,23,42,.08); background: #f8fafc; }
+      .outlookCard.imported { opacity: .65; }
+      .outlookCardTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .outlookCard h4 { margin: 0; color: #0f172a; }
+      .outlookCard p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.45; }
+      .outlookBadge { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 900; }
+      .outlookBadge.imported { background: #dcfce7; color: #166534; }
+      .outlookBadge.high { background: #dcfce7; color: #166534; }
+      .outlookBadge.medium { background: #fef3c7; color: #92400e; }
+      .outlookBadge.low { background: #fee2e2; color: #991b1b; }
+      .outlookActions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .outlookActions button { border-radius: 12px; }
+
+      .availabilityOverdue { background: #fee2e2 !important; border-color: #ef4444 !important; color: #7f1d1d !important; }
+      .availabilityOverdue strong, .availabilityOverdue span { color: #7f1d1d !important; }
+      .negativeTime { font-weight: 900; color: #dc2626 !important; }
+      @media (max-width: 768px) {
+        html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; }
+        body { background: #070d1c; }
+        .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 92px !important; margin: 0 !important; }
+        .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
+        .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
+        .phoneDatePicker { margin-top: 6px; height: 34px; border: 0; border-radius: 10px; padding: 0 10px; font-weight: 900; color: #0f172a; background: #f8fafc; }
+        .phoneHeader .eyebrow { margin: 0 0 4px; color: #f97316; font-size: 10px; letter-spacing: .12em; font-weight: 900; text-transform: uppercase; }
+        .phoneIconButton { width: 44px; height: 44px; border-radius: 14px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 8px 18px rgba(249,115,22,.3); }
+        .mobileApp { padding: 10px 10px 0 !important; background: #070d1c; min-height: calc(100vh - 70px); }
+        .mobileAppHeader { border-radius: 18px !important; padding: 16px !important; margin: 0 0 10px !important; background: linear-gradient(135deg, #111827, #1f2937) !important; border: 1px solid rgba(255,255,255,.08); }
+        .mobileAppHeader h1 { font-size: 20px !important; margin: 2px 0 0 !important; color: white; }
+        .mobileAppHeader p { font-size: 10px !important; letter-spacing: .14em; font-weight: 900; color: #f97316 !important; }
+        .mobileAppHeader strong { min-width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: #f97316; color: white; }
+        .mobileTabs { position: sticky; top: 68px; z-index: 40; display: flex !important; overflow-x: auto; gap: 8px; padding: 8px 0 10px !important; background: #070d1c; scrollbar-width: none; }
+        .mobileTabs::-webkit-scrollbar { display: none; }
+        .mobileTabs button { flex: 0 0 auto; min-height: 40px; border: 0; border-radius: 999px; padding: 0 15px; font-size: 13px; font-weight: 900; background: #1f2937; color: #cbd5e1; }
+        .mobileTabs button.active { background: #f97316; color: white; }
+        .mobileJobList { display: grid !important; gap: 12px !important; }
+        .mobileJob { border-radius: 18px !important; padding: 14px !important; background: #f8fafc !important; border: 1px solid rgba(255,255,255,.08) !important; box-shadow: 0 12px 28px rgba(0,0,0,.24); }
+        .mobileJobTop { align-items: center; margin-bottom: 10px !important; }
+        .mobileJobTop b { font-size: 11px !important; letter-spacing: .04em; text-transform: uppercase; color: #0f172a; }
+        .mobilePill { padding: 5px 9px !important; border-radius: 999px !important; font-size: 10px !important; font-weight: 900; }
+        .mobileJob h2 { font-size: 23px !important; line-height: 1.05; margin: 0 !important; color: #0f172a; }
+        .mobileJob > p { margin: 4px 0 12px !important; font-size: 15px !important; font-weight: 800; color: #64748b !important; }
+        .mobileMetaGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 8px !important; margin-bottom: 10px !important; }
+        .mobileMetaGrid div { padding: 12px !important; border-radius: 14px !important; background: #eef2f7 !important; }
+        .mobileMetaGrid span { font-size: 10px !important; font-weight: 900; letter-spacing: .1em; color: #64748b !important; text-transform: uppercase; }
+        .mobileMetaGrid strong { display: block; font-size: 16px !important; color: #0f172a; margin-top: 2px; }
+        .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
+        .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
+        .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
+        .phoneBottomNav { position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 100; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 8px; border-radius: 22px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 16px 38px rgba(0,0,0,.38); }
+        .phoneBottomNav button { height: 58px; border: 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 900; }
+        .phoneBottomNav button.active { background: #f97316; color: white; }
+        .phoneFab { position: fixed; right: 18px; bottom: 92px; z-index: 110; width: 60px; height: 60px; border-radius: 20px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 14px 30px rgba(249,115,22,.42); }
+        .page { padding: 10px !important; }
+        .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
+        .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
+        .modalBackdrop { padding: 10px !important; align-items: flex-end !important; }
+        .modal { width: 100% !important; max-width: none !important; max-height: 92vh !important; overflow: auto !important; border-radius: 22px 22px 0 0 !important; }
+        .table, .performanceTable, .availabilityTable, .schedule { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+        .outlookGrid { grid-template-columns: 1fr !important; }
+        .accessGate { min-height: 100vh; display: grid; place-items: center; padding: 18px; background: #070d1c; }
+        .accessPanel { width: min(520px, 100%); border-radius: 22px; padding: 18px; background: #f8fafc; }
+        .accessPanel label { display: grid; gap: 6px; margin: 12px 0; font-weight: 900; color: #0f172a; }
+      }
+    `}</style>
+  );
+}
+
+function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
+  const [filter, setFilter] = useState("Open");
+
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const shownJobs =
+    filter === "Open"
+      ? openJobs
+      : jobs.filter((j) => ctx.status(j.status_id)?.name === filter);
+
+  const getStatusId = (name) =>
+    ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
+
+  async function updateStatus(job, statusName) {
+    const statusId = getStatusId(statusName);
+    if (!statusId) return alert(`Missing status: ${statusName}`);
+
+    const now = new Date().toISOString();
+    const updatePayload = {
+      status_id: statusId,
+      updated_at: now,
+    };
+
+    if (statusName === "In Progress" && !job.production_started_at) {
+      updatePayload.production_started_at = now;
+    }
+
+    const { error } = await supabase
+      .from("jobs")
+      .update(updatePayload)
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
+  async function completeJob(job) {
+    const completedId = getStatusId("Completed");
+    if (!completedId) return alert("Missing status: Completed");
+
+    const now = new Date();
+    const startedAt = getJobStartedAt(job) || getScheduledStartDate(job) || now;
+    const actualHours = Math.max(0.01, (now - startedAt) / 36e5);
+
+    const { error } = await supabase
+      .from("jobs")
+      .update({
+        status_id: completedId,
+        actual_hours: roundHours(actualHours),
+        production_started_at: job.production_started_at || startedAt.toISOString(),
+        production_completed_at: now.toISOString(),
+        qc: "Yes",
+        updated_at: now.toISOString(),
+      })
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    notifyUser(`Completed: ${job.vehicle || "job"} • ${roundHours(actualHours)} actual hrs`);
+    await reload();
+  }
+
+  return (
+    <section className="mobileApp">
+      <header className="mobileAppHeader">
+        <div>
+          <p>H&H Production</p>
+          <h1>{selectedDate === todayIso() ? "Manager View" : selectedDate}</h1>
+        </div>
+        <strong>{openJobs.length}</strong>
+      </header>
+
+      <div className="mobileTabs">
+        {["Open", "Scheduled", "In Progress", "Waiting", "QC"].map((x) => (
+          <button
+            key={x}
+            className={filter === x ? "active" : ""}
+            onClick={() => setFilter(x)}
+          >
+            {x}
+          </button>
+        ))}
+      </div>
+
+      <div className="mobileJobList">
+        {shownJobs.map((job) => {
+          const product = ctx.product(job.product_id);
+          const tech = ctx.tech(job.technician_id);
+          const status = ctx.status(job.status_id);
+
+          return (
+            <article className="mobileJob" key={job.id}>
+              <div className="mobileJobTop">
+                <span
+                  className="mobilePill"
+                  style={{
+                    background: `${status?.color || "#64748b"}22`,
+                    color: status?.color || "#64748b",
+                  }}
+                >
+                  {status?.name || "Unknown"}
+                </span>
+                <b>{tech?.name || "Unassigned"}</b>
+              </div>
+
+              <h2>{job.vehicle}</h2>
+              <p>{product?.name || "Unknown Job"}</p>
+
+              <div className="mobileMetaGrid">
+                <div>
+                  <span>Start</span>
+                  <strong>{shortTime(job.start_time)}</strong>
+                </div>
+                <div>
+                  <span>Book</span>
+                  <strong>{job.book_hours} hrs</strong>
+                </div>
+                <div>
+                  <span>Customer</span>
+                  <strong>{job.customer}</strong>
+                </div>
+                <div>
+                  <span>QC</span>
+                  <strong>{job.qc || "N/A"}</strong>
+                </div>
+              </div>
+
+              <div className="mobileActionGrid">
+                <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
+                <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
+                <button onClick={() => updateStatus(job, "QC")}>QC</button>
+                <button onClick={() => setEditingJob(job)}>Edit</button>
+                <button className="complete" onClick={() => completeJob(job)}>
+                  Complete
+                </button>
+              </div>
+            </article>
+          );
+        })}
+
+        {!shownJobs.length && (
+          <div className="mobileEmpty">
+            <h2>No jobs here</h2>
+            <p>Change tabs or add a new job from desktop.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Dashboard({ jobs, ctx, metrics, selectedDate }) {
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+
+  return (
+    <section className="page">
+      <div className="hero">
+        <div>
+          <p className="eyebrow">Live production</p>
+          <h3>{selectedDate === todayIso() ? "Today’s shop performance" : `Shop performance for ${selectedDate}`}</h3>
+          <p>Every card reads from Supabase. Updates from another device sync back into this dashboard.</p>
+        </div>
+        <div className="heroMetric">
+          <span>Shop efficiency</span>
+          <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
+        </div>
+      </div>
+
+     <div className="kpis">
+  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Current workload" />
+
+  <Kpi
+    title="Jobs Completed"
+    value={metrics.completedJobs}
+    caption="Completed jobs"
+  />
+
+  <Kpi
+    title="Jobs In Progress"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length}
+    caption="Currently working"
+  />
+
+  <Kpi
+    title="Waiting Jobs"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Waiting").length}
+    caption="Needs attention"
+  />
+
+  <Kpi
+    title="QC Queue"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length}
+    caption="Awaiting inspection"
+  />
+
+  <Kpi
+    title="Book Hours Complete"
+    value={metrics.bookComplete.toFixed(1)}
+    caption="Completed"
+  />
+
+  <Kpi
+    title="Actual Hours Used"
+    value={metrics.actualUsed.toFixed(1)}
+    caption="Completed"
+  />
+
+  <Kpi
+    title="Average Install Time"
+    value={`${metrics.avgActualTime.toFixed(2)} hrs`}
+    caption="Completed jobs"
+  />
+
+  <Kpi
+    title="Shop Efficiency"
+    value={`${Math.round(metrics.efficiency)}%`}
+    caption="Overall"
+  />
+</div>
+
+      <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
+
+      <div className="grid two">
+        <Panel title="Live shop board" chip="Open jobs">
+          <div className="jobList">
+            {openJobs.length ? (
+              openJobs.map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
+            ) : (
+              <p className="muted">No open jobs.</p>
+            )}
+          </div>
+        </Panel>
+        <Panel title="Efficiency leaders" chip="Completed">
+          <TechLeaderboard jobs={jobs} ctx={ctx} />
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function useCurrentMinute() {
+  const [minute, setMinute] = useState(getCurrentMinuteOfDay());
+
+  useEffect(() => {
+    const tick = () => setMinute(getCurrentMinuteOfDay());
+    tick();
+    const interval = setInterval(tick, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return minute;
+}
+
+function getCurrentMinuteOfDay() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function timeStringToMinutes(value) {
+  const [h, m] = shortTime(value).split(":").map(Number);
+  return h * 60 + m;
+}
+
+function isMinuteInsideSchedule(minute, open, close) {
+  const start = timeStringToMinutes(open);
+  const end = timeStringToMinutes(close);
+  return minute >= start && minute <= end;
+}
+
+function getScheduleTimeLineTop(minute, open) {
+  const headerHeight = 72;
+  const slotHeight = 72;
+  const start = timeStringToMinutes(open);
+  const minutesFromOpen = Math.max(0, minute - start);
+  return headerHeight + (minutesFromOpen / 30) * slotHeight;
+}
+
+function formatMinutesAsTime(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function Schedule({ jobs, ctx, selectedDate }) {
+  const activeTechs = ctx.technicians.filter((t) => t.active);
+  const shopOpen = ctx.shopSettings?.shop_open || "08:00";
+  const shopClose = ctx.shopSettings?.shop_close || "18:00";
+  const times = buildTimeSlots(shopOpen, shopClose);
+  const currentMinute = useCurrentMinute();
+  const showCurrentTimeLine = selectedDate === todayIso() && isMinuteInsideSchedule(currentMinute, shopOpen, shopClose);
+  const currentTimeTop = getScheduleTimeLineTop(currentMinute, shopOpen);
+
+  function timeToMinutes(value) {
+    const [h, m] = shortTime(value).split(":").map(Number);
+    return h * 60 + m;
+  }
+
+  function jobCoversSlot(job, slotTime) {
+    if (!job.start_time || !job.book_hours) return false;
+
+    const slotStart = timeToMinutes(slotTime);
+    const jobStart = timeToMinutes(job.start_time);
+    const jobEnd = jobStart + Number(job.book_hours) * 60;
+
+    return slotStart >= jobStart && slotStart < jobEnd;
+  }
+
+  function isJobStart(job, slotTime) {
+    return shortTime(job.start_time) === slotTime;
+  }
+
+  function jobStatusClass(job) {
+    const finishMinutes = timeToMinutes(job.start_time) + Number(job.book_hours || 0) * 60;
+    const statusName = ctx.status(job.status_id)?.name || "";
+    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes < currentMinute) return "miniJobOverdue";
+    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes - currentMinute <= 30 && finishMinutes - currentMinute >= 0) return "miniJobFinishingSoon";
+    if (statusName === "QC") return "miniJobQc";
+    return "";
+  }
+
+  return (
+    <section className="page">
+      <Panel title="Technician schedule" chip={selectedDate === todayIso() ? "Today" : selectedDate}>
+        <div className="scheduleWrap">
+          {showCurrentTimeLine && (
+            <div className="currentTimeLine" style={{ top: `${currentTimeTop}px` }}>
+              <span>{formatMinutesAsTime(currentMinute)}</span>
+            </div>
+          )}
+
+          <div
+            className="schedule"
+            style={{
+              gridTemplateColumns: `86px repeat(${Math.max(
+                activeTechs.length,
+                1
+              )}, minmax(150px, 1fr))`,
+              gridAutoRows: "72px",
+            }}
+          >
+            <div className="scheduleHead empty" />
+
+            {activeTechs.map((tech) => (
+              <div className="scheduleHead" key={tech.id}>
+                {tech.name}
+              </div>
+            ))}
+
+            {times.map((time) => (
+              <React.Fragment key={time}>
+                <div className="timeCell">{formatTime(time)}</div>
+
+                {activeTechs.map((tech) => {
+                  const coveringJobs = jobs.filter(
+                    (j) =>
+                      j.technician_id === tech.id &&
+                      !ctx.isComplete(j.status_id) &&
+                      jobCoversSlot(j, time)
+                  );
+
+                  return (
+                    <div
+                      className={`slot ${
+                        coveringJobs.length ? "slotBlocked" : ""
+                      }`}
+                      key={`${tech.id}-${time}`}
+                    >
+                      {coveringJobs.map((j) => {
+                        const product = ctx.product(j.product_id);
+                        const category = ctx.category(product?.category_id);
+                        const status = ctx.status(j.status_id);
+
+                        return (
+                          <div
+                            className={`miniJob ${
+                              isJobStart(j, time)
+                                ? "miniJobStart"
+                                : "miniJobContinued"
+                            } ${jobStatusClass(j)}`}
+                            style={{
+                              borderColor: category?.color || "#f97316",
+                            }}
+                            key={`${j.id}-${time}`}
+                          >
+                            {isJobStart(j, time) ? (
+                              <>
+                                <strong>{product?.name}</strong>
+                                <br />
+                                <span>{j.vehicle}</span>
+                                <br />
+                                <small>
+                                  {shortTime(j.start_time)} • {j.book_hours} hrs •{" "}
+                                  {status?.name}
+                                </small>
+                              </>
+                            ) : (
+                              <small>continued</small>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function Foreman({ jobs, ctx, reload }) {
+  const open = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const inProgress = ctx.statuses.find((s) => s.name === "In Progress")?.id;
+  const waiting = ctx.statuses.find((s) => s.name === "Waiting")?.id;
+  const complete =
+    ctx.statuses.find((s) => s.name === "Completed")?.id ||
+    ctx.statuses.find((s) => s.name === "Complete")?.id;
+
+  async function setStatus(job, statusId) {
+    const now = new Date().toISOString();
+    const updatePayload = { status_id: statusId, updated_at: now };
+
+    if (statusId === inProgress && !job.production_started_at) {
+      updatePayload.production_started_at = now;
+    }
+
+    const { error } = await supabase
+      .from("jobs")
+      .update(updatePayload)
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
+  async function completeJob(job) {
+    const now = new Date();
+    const startedAt = getJobStartedAt(job) || getScheduledStartDate(job) || now;
+    const actualHours = Math.max(0.01, (now - startedAt) / 36e5);
+
+    const { error } = await supabase
+      .from("jobs")
+      .update({
+        status_id: complete,
+        actual_hours: roundHours(actualHours),
+        production_started_at: job.production_started_at || startedAt.toISOString(),
+        production_completed_at: now.toISOString(),
+        qc: "Yes",
+        updated_at: now.toISOString(),
+      })
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    notifyUser(`Completed: ${job.vehicle || "job"} • ${roundHours(actualHours)} actual hrs`);
+    await reload();
+  }
+
+  return (
+    <section className="page">
+      <div className="mobileHero">
+        <p className="eyebrow">Foreman mode</p>
+        <h3>Fast floor updates</h3>
+        <p>Updates write directly to Supabase.</p>
+      </div>
+
+      <div className="cards3">
+        {open.map((job) => (
+          <div className="foremanCard" key={job.id}>
+            <StatusPill status={ctx.status(job.status_id)} />
+            <h4>{ctx.product(job.product_id)?.name}</h4>
+            <p>
+              {job.vehicle}
+              <br />
+              {job.customer}
+              <br />
+              <b>{ctx.tech(job.technician_id)?.name}</b> • {formatTime(shortTime(job.start_time))} • {job.book_hours} book hrs
+            </p>
+            <div className="buttonGrid">
+              {waiting && <button onClick={() => setStatus(job, waiting)}>Waiting</button>}
+              {inProgress && <button onClick={() => setStatus(job, inProgress)}>Start</button>}
+              {complete && (
+                <button className="completeBtn" onClick={() => completeJob(job)}>
+                  Complete
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProductionLog({ jobs, ctx, reload, setEditingJob }) {
+  const [search, setSearch] = useState("");
+  const filteredJobs = jobs.filter((j) => {
+    const haystack = [j.customer, j.vehicle, ctx.product(j.product_id)?.name, ctx.tech(j.technician_id)?.name, ctx.status(j.status_id)?.name]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(search.toLowerCase());
+  });
+
+  async function deleteJob(id) {
+    if (!confirm("Delete this job?")) return;
+
+    const { error } = await supabase.from("jobs").delete().eq("id", id);
+    if (error) return alert(error.message);
+
+    await reload();
+  }
+
+  return (
+    <section className="page">
+      <Panel title="Production Log" chip={`${filteredJobs.length} jobs`}>
+        <div className="adminActions">
+          <input placeholder="Search customer, vehicle, job, tech..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="table">
+          <div className="row header">
+            <span>Customer</span>
+            <span>Vehicle</span>
+            <span>Job</span>
+            <span>Tech</span>
+            <span>Status</span>
+            <span>Book</span>
+            <span>Actual</span>
+            <span>Eff.</span>
+            <span>QC</span>
+            <span></span>
+          </div>
+
+          {filteredJobs.map((j) => {
+            const eff = efficiency(j);
+            return (
+              <div className="row" key={j.id}>
+                <b>{j.customer}</b>
+                <span>{j.vehicle}</span>
+                <span>{ctx.product(j.product_id)?.name}</span>
+                <span>{ctx.tech(j.technician_id)?.name}</span>
+                <StatusPill status={ctx.status(j.status_id)} />
+                <span>{j.book_hours}</span>
+                <span>{j.actual_hours ?? "—"}</span>
+                <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
+                <span>{j.qc || "N/A"}</span>
+                <div className="rowActions">
+                  <button onClick={() => setEditingJob(j)}>Edit</button>
+                  <button onClick={() => deleteJob(j.id)}>Delete</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function Technicians({ jobs, ctx }) {
+  return (
+    <section className="page">
+      <div className="cards3">
+        {ctx.technicians.map((tech) => {
+          const techJobs = jobs.filter((j) => j.technician_id === tech.id);
+          const completed = techJobs.filter((j) => ctx.isComplete(j.status_id) && j.actual_hours);
+          const book = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+          const actual = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+          const eff = actual ? (book / actual) * 100 : 0;
+
+          return (
+            <div className={`scoreCard ${!tech.active ? "inactive" : ""}`} key={tech.id}>
+              <div className="avatar">{tech.name.slice(0, 2)}</div>
+              <h3>{tech.name}</h3>
+              <p className="muted">
+                {tech.role} • {tech.active ? "Active" : "Inactive"}
+              </p>
+              <div className="scoreGrid">
+                <Metric label="Efficiency" value={`${Math.round(eff)}%`} className={effClass(eff)} />
+                <Metric label="Goal" value={`${tech.efficiency_goal || 0}%`} />
+                <Metric label="Book hrs" value={book.toFixed(1)} />
+                <Metric label="Actual hrs" value={actual.toFixed(1)} />
+                <Metric label="Jobs" value={completed.length} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function Products({ ctx, reload }) {
+  const [editing, setEditing] = useState(null);
+
+  async function remove(id) {
+    if (!confirm("Delete this product?")) return;
+
+    const { error } = await supabase.from("products").delete().eq("id", id);
+    if (error) return alert(error.message);
+
+    await reload();
+  }
+
+  return (
+    <section className="page">
+      <Panel title="H&H Product / Labor Database" chip="Live">
+        <div className="adminActions">
+          <button
+            className="primary"
+            onClick={() =>
+              setEditing({
+                name: "",
+                category_id: ctx.categories[0]?.id,
+                book_hours: 0,
+                labor_price: 0,
+                notes: "",
+              })
+            }
+          >
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
+
+        <div className="table productTable">
+          <div className="row header productRow">
+            <span>Product</span>
+            <span>Category</span>
+            <span>Hours</span>
+            <span>Labor</span>
+            <span>Notes</span>
+            <span></span>
+          </div>
+
+          {ctx.products.map((p) => (
+            <div className="row productRow" key={p.id}>
+              <b>{p.name}</b>
+              <span>{ctx.category(p.category_id)?.name}</span>
+              <span>{p.book_hours}</span>
+              <b>{money(p.labor_price)}</b>
+              <span>{p.notes}</span>
+              <div className="rowActions">
+                <button onClick={() => setEditing(p)}>Edit</button>
+                <button onClick={() => remove(p.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      {editing && <ProductEditor product={editing} ctx={ctx} onClose={() => setEditing(null)} reload={reload} />}
+    </section>
+  );
+}
+
+function PerformanceCenter({ jobs, ctx, metrics }) {
+  const activeTechs = ctx.technicians.filter((t) => t.active);
+  const [selectedTechId, setSelectedTechId] = useState(activeTechs[0]?.id || "");
+
+  useEffect(() => {
+    if (!selectedTechId && activeTechs[0]?.id) setSelectedTechId(activeTechs[0].id);
+  }, [selectedTechId, activeTechs]);
+
+  const selectedTech = ctx.tech(selectedTechId) || activeTechs[0];
+  const shopRows = buildProductPerformanceRows(jobs, ctx, null);
+  const techRows = buildProductPerformanceRows(jobs, ctx, selectedTech?.id);
+
+  return (
+    <section className="page">
+      <div className="performanceHero">
+        <div>
+          <p className="eyebrow">Performance Platform</p>
+          <h3>Install times, efficiency, records, and shop averages</h3>
+          <p>No labor dollars. This page measures execution, consistency, QC, and improvement.</p>
+        </div>
+        <div className="performanceHeroStats">
+          <div>
+            <span>Shop Efficiency</span>
+            <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
+          </div>
+          <div>
+            <span>Avg Job Time</span>
+            <strong>{metrics.avgActualTime.toFixed(2)}h</strong>
+          </div>
+          <div>
+            <span>Completed</span>
+            <strong>{metrics.completedJobs}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid two">
+        <Panel title="Technician Dashboard" chip={selectedTech?.name || "Select"}>
+          <div className="techSelector">
+            <label>
+              Select Technician
+              <select value={selectedTech?.id || ""} onChange={(e) => setSelectedTechId(e.target.value)}>
+                {activeTechs.map((tech) => (
+                  <option value={tech.id} key={tech.id}>
+                    {tech.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
+        </Panel>
+
+        <Panel title="Shop Leaderboard" chip="Efficiency">
+          <TechLeaderboard jobs={jobs} ctx={ctx} detailed />
+        </Panel>
+      </div>
+
+      <Panel title="Average Job Times by Product" chip="Shop averages">
+        <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
+      </Panel>
+    </section>
+  );
+}
+
+function TechnicianDashboard({ technician, jobs, ctx, rows }) {
+  const stats = getTechStats(jobs, ctx, technician.id);
+  const records = rows
+    .filter((r) => r.jobs > 0 && r.bestTime !== null)
+    .sort((a, b) => a.bestTime - b.bestTime)
+    .slice(0, 5);
+
+  return (
+    <div className="techDashboard">
+      <div className="techHeaderCard">
+        <div className="techAvatarLarge">{technician.name.slice(0, 2)}</div>
+        <div>
+          <h2>{technician.name}</h2>
+          <p>{technician.role || "Technician"}</p>
+        </div>
+        <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+      </div>
+
+      <div className="techStatGrid">
+        <MiniStat label="Jobs Completed" value={stats.completedJobs} />
+        <MiniStat label="Book Hours" value={stats.bookHours.toFixed(1)} />
+        <MiniStat label="Actual Hours" value={stats.actualHours.toFixed(1)} />
+        <MiniStat label="Avg Job Time" value={`${stats.avgActual.toFixed(2)}h`} />
+        <MiniStat label="QC Pass Rate" value={`${Math.round(stats.qcPassRate)}%`} />
+        <MiniStat label="Goal" value={`${technician.efficiency_goal || 110}%`} />
+      </div>
+
+      <div className="recordsBox">
+        <h3>Personal Records</h3>
+        {records.length ? (
+          records.map((r) => (
+            <div className="recordRow" key={r.productId}>
+              <span>{r.productName}</span>
+              <strong>{r.bestTime.toFixed(2)}h</strong>
+            </div>
+          ))
+        ) : (
+          <p className="muted">No completed jobs with actual hours yet.</p>
+        )}
+      </div>
+
+      <TechnicianTimelineRecords technician={technician} jobs={jobs} ctx={ctx} />
+
+      <h3 className="sectionTitle">Average Job Times</h3>
+      <PerformanceTable rows={rows} emptyText="This technician needs completed jobs with actual hours." compact />
+    </div>
+  );
+}
+
+function TechnicianTimelineRecords({ technician, jobs, ctx }) {
+  const completedRows = jobs
+    .filter((job) => job.technician_id === technician.id && ctx.isComplete(job.status_id) && Number(job.actual_hours) > 0)
+    .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))
+    .slice(0, 10);
+
+  if (!completedRows.length) {
+    return (
+      <div className="techTimelineRecords">
+        <div className="techTimelineHeader">
+          <h3>Timeline Records</h3>
+          <span>No completed jobs yet</span>
+        </div>
+        <p className="muted">Completed jobs with actual hours will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="techTimelineRecords">
+      <div className="techTimelineHeader">
+        <h3>Timeline Records</h3>
+        <span>Last {completedRows.length} completed</span>
+      </div>
+      <div className="techTimelineList">
+        {completedRows.map((job) => {
+          const product = ctx.product(job.product_id);
+          const eff = efficiency(job);
+          const actual = Number(job.actual_hours || 0);
+          const book = Number(job.book_hours || 0);
+          const completedAt = job.updated_at || job.created_at;
+
+          return (
+            <div className="techTimelineRow" key={job.id}>
+              <div className="techTimelineDate">{formatShortDate(completedAt)}</div>
+              <div className="techTimelineMain">
+                <strong>{product?.name || "Unknown Job"}</strong>
+                <span>{job.vehicle} • {job.customer}</span>
+              </div>
+              <div className="techTimelineStats">
+                <strong className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</strong>
+                <span>{actual.toFixed(2)}h / {book.toFixed(2)}h</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PerformanceTable({ rows, emptyText, compact = false }) {
+  const filtered = rows.filter((r) => r.jobs > 0);
+
+  if (!filtered.length) {
+    return <p className="muted">{emptyText}</p>;
+  }
+
+  return (
+    <div className={`performanceTable ${compact ? "compact" : ""}`}>
+      <div className="perfRow perfHeader">
+        <span>Product / Job</span>
+        <span>Book</span>
+        <span>Jobs</span>
+        <span>Tech Avg</span>
+        <span>Shop Avg</span>
+        <span>Vs Book</span>
+        <span>Vs Shop</span>
+        <span>Best</span>
+        <span>Last</span>
+      </div>
+
+      {filtered.map((row) => (
+        <div className="perfRow" key={row.productId}>
+          <strong>{row.productName}</strong>
+          <span>{row.bookHours.toFixed(2)}</span>
+          <span>{row.jobs}</span>
+          <span>{formatNullableHours(row.techAvg)}</span>
+          <span>{formatNullableHours(row.shopAvg)}</span>
+          <span className={deltaClass(row.vsBook)}>{formatSigned(row.vsBook)}</span>
+          <span className={deltaClass(row.vsShop)}>{formatSigned(row.vsShop)}</span>
+          <span>{formatNullableHours(row.bestTime)}</span>
+          <span>{formatNullableHours(row.lastActual)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div className="miniStat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+// 8) Add these helper functions near the bottom:
+function getTechStats(jobs, ctx, technicianId) {
+  const completed = jobs.filter(
+    (j) => j.technician_id === technicianId && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
+  );
+
+  const bookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const actualHours = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const qcPassed = completed.filter((j) => (j.qc || "").toLowerCase() === "yes").length;
+
+  return {
+    completedJobs: completed.length,
+    bookHours,
+    actualHours,
+    efficiency: actualHours ? (bookHours / actualHours) * 100 : 0,
+    avgActual: completed.length ? actualHours / completed.length : 0,
+    qcPassRate: completed.length ? (qcPassed / completed.length) * 100 : 0,
+  };
+}
+
+function buildProductPerformanceRows(jobs, ctx, technicianId = null) {
+  const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
+
+  return ctx.products.map((product) => {
+    const productJobs = completed.filter((j) => j.product_id === product.id);
+    const techJobs = technicianId ? productJobs.filter((j) => j.technician_id === technicianId) : productJobs;
+
+    const shopAvg = avg(productJobs.map((j) => Number(j.actual_hours)));
+    const techAvg = avg(techJobs.map((j) => Number(j.actual_hours)));
+    const bestTime = minOrNull(techJobs.map((j) => Number(j.actual_hours)));
+    const lastJob = [...techJobs].sort(
+      (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
+    )[0];
+
+    return {
+      productId: product.id,
+      productName: product.name,
+      bookHours: Number(product.book_hours || 0),
+      jobs: techJobs.length,
+      techAvg,
+      shopAvg,
+      vsBook: techAvg === null ? null : Number(product.book_hours || 0) - techAvg,
+      vsShop: techAvg === null || shopAvg === null ? null : shopAvg - techAvg,
+      bestTime,
+      lastActual: lastJob ? Number(lastJob.actual_hours) : null,
+    };
+  });
+}
+
+function avg(values) {
+  const clean = values.filter((v) => Number.isFinite(v) && v > 0);
+  if (!clean.length) return null;
+  return clean.reduce((a, b) => a + b, 0) / clean.length;
+}
+
+function minOrNull(values) {
+  const clean = values.filter((v) => Number.isFinite(v) && v > 0);
+  if (!clean.length) return null;
+  return Math.min(...clean);
+}
+
+function formatNullableHours(value) {
+  return value === null || value === undefined ? "—" : value.toFixed(2);
+}
+
+function formatSigned(value) {
+  if (value === null || value === undefined) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}`;
+}
+
+function deltaClass(value) {
+  if (value === null || value === undefined) return "";
+  return value >= 0 ? "good" : "bad";
+}
+
+// 9) In ProductionLog, remove the labor column and replace it with QC.
+// Header should end like:
+// <span>Eff.</span>
+// <span>QC</span>
+// <span></span>
+//
+// Row should end like:
+// <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
+// <span>{j.qc || "N/A"}</span>
+// <button onClick={() => deleteJob(j.id)}>Delete</button>
+
+function Admin({ ctx, reload }) {
+  return (
+    <section className="page">
+      <div className="adminHero">
+        <p className="eyebrow">Administration</p>
+        <h3>Live cloud configuration</h3>
+        <p>Technicians, categories, statuses, delay reasons, labor rates, and shop hours are stored in Supabase.</p>
+      </div>
+
+      <div className="grid two">
+        <EditableCloudList title="Technicians" table="technicians" items={ctx.technicians} reload={reload} companyId={ctx.company.id} type="technician" />
+        <EditableCloudList title="Job Categories" table="categories" items={ctx.categories} reload={reload} companyId={ctx.company.id} type="category" extra={{ laborRates: ctx.laborRates }} />
+        <EditableCloudList title="Statuses" table="statuses" items={ctx.statuses} reload={reload} companyId={ctx.company.id} type="status" />
+        <EditableCloudList title="Delay Reasons" table="delay_reasons" items={ctx.delayReasons} reload={reload} companyId={ctx.company.id} type="delay" />
+        <EditableCloudList title="Labor Rates" table="labor_rates" items={ctx.laborRates} reload={reload} companyId={ctx.company.id} type="labor" />
+        <ShopHours ctx={ctx} reload={reload} />
+      </div>
+    </section>
+  );
+}
+
+function EditableCloudList({ title, table, items, reload, companyId, type, extra = {} }) {
+  const [draft, setDraft] = useState(null);
+
+  function newItem() {
+    if (type === "technician") setDraft({ name: "", role: "Technician", active: true, efficiency_goal: 110 });
+    if (type === "category") setDraft({ name: "", color: "#2563eb", labor_rate_id: extra.laborRates[0]?.id });
+    if (type === "status") setDraft({ name: "", color: "#2563eb", active: true });
+    if (type === "delay") setDraft({ name: "", active: true });
+    if (type === "labor") setDraft({ name: "", rate_type: "hourly", amount: 140, active: true });
+  }
+
+  async function save() {
+    const payload = { ...draft, company_id: companyId };
+
+    const { error } = draft.id
+      ? await supabase.from(table).update(payload).eq("id", draft.id)
+      : await supabase.from(table).insert(payload);
+
+    if (error) return alert(error.message);
+
+    setDraft(null);
+    await reload();
+  }
+
+  async function remove(id) {
+    if (!confirm(`Delete from ${title}?`)) return;
+
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) return alert(error.message);
+
+    await reload();
+  }
+
+  return (
+    <Panel title={title} chip={`${items.length}`}>
+      <div className="adminActions">
+        <button className="primary" onClick={newItem}>
+          <Plus size={16} /> Add
+        </button>
+      </div>
+
+      <div className="adminList">
+        {items.map((item) => (
+          <div className="adminItem" key={item.id}>
+            <div>
+              <b>{item.name}</b>
+              {item.color && <span className="colorDot" style={{ background: item.color }} />}
+              {item.amount !== undefined && (
+                <span className="muted">
+                  {" "}
+                  {item.rate_type} • {money(item.amount)}
+                </span>
+              )}
+              {item.active === false && <span className="muted"> inactive</span>}
+            </div>
+            <div className="rowActions">
+              <button onClick={() => setDraft(item)}>
+                <Edit3 size={15} />
+              </button>
+              <button onClick={() => remove(item.id)}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {draft && <AdminEditor item={draft} setItem={setDraft} onSave={save} onCancel={() => setDraft(null)} type={type} extra={extra} />}
+    </Panel>
+  );
+}
+
+function AdminEditor({ item, setItem, onSave, onCancel, type, extra }) {
+  return (
+    <div className="inlineEditor">
+      <label>
+        Name
+        <input value={item.name || ""} onChange={(e) => setItem({ ...item, name: e.target.value })} />
+      </label>
+
+      {type === "technician" && (
+        <>
+          <label>
+            Role
+            <input value={item.role || ""} onChange={(e) => setItem({ ...item, role: e.target.value })} />
+          </label>
+          <label>
+            Efficiency Goal
+            <input type="number" value={item.efficiency_goal || 0} onChange={(e) => setItem({ ...item, efficiency_goal: Number(e.target.value) })} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={item.active ?? true} onChange={(e) => setItem({ ...item, active: e.target.checked })} /> Active
+          </label>
+        </>
+      )}
+
+      {(type === "category" || type === "status") && (
+        <label>
+          Color
+          <input type="color" value={item.color || "#2563eb"} onChange={(e) => setItem({ ...item, color: e.target.value })} />
+        </label>
+      )}
+
+      {type === "category" && (
+        <label>
+          Labor Rate
+          <select value={item.labor_rate_id || ""} onChange={(e) => setItem({ ...item, labor_rate_id: e.target.value })}>
+            {extra.laborRates.map((r) => (
+              <option value={r.id} key={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {type === "labor" && (
+        <>
+          <label>
+            Type
+            <select value={item.rate_type || "hourly"} onChange={(e) => setItem({ ...item, rate_type: e.target.value })}>
+              <option>hourly</option>
+              <option>flat</option>
+            </select>
+          </label>
+          <label>
+            Amount
+            <input type="number" value={item.amount || 0} onChange={(e) => setItem({ ...item, amount: Number(e.target.value) })} />
+          </label>
+        </>
+      )}
+
+      <div className="buttonRow">
+        <button className="primary" onClick={onSave}>
+          <Save size={15} /> Save
+        </button>
+        <button onClick={onCancel}>
+          <X size={15} /> Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProductEditor({ product, ctx, onClose, reload }) {
+  const [draft, setDraft] = useState(product);
+
+  async function save() {
+    const payload = {
+      ...draft,
+      company_id: ctx.company.id,
+      book_hours: Number(draft.book_hours || 0),
+      labor_price: Number(draft.labor_price || 0),
+    };
+
+    const { error } = draft.id
+      ? await supabase.from("products").update(payload).eq("id", draft.id)
+      : await supabase.from("products").insert(payload);
+
+    if (error) return alert(error.message);
+
+    onClose();
+    await reload();
+  }
+
+  return (
+    <div className="modalBackdrop">
+      <div className="modal">
+        <div className="modalHeader">
+          <h3>Product</h3>
+          <button onClick={onClose}>×</button>
+        </div>
+
+        <div className="formGrid">
+          <label>
+            Product
+            <input value={draft.name || ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          </label>
+          <label>
+            Category
+            <select value={draft.category_id || ""} onChange={(e) => setDraft({ ...draft, category_id: e.target.value })}>
+              {ctx.categories.map((c) => (
+                <option value={c.id} key={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Book Hours
+            <input type="number" step="0.25" value={draft.book_hours || 0} onChange={(e) => setDraft({ ...draft, book_hours: Number(e.target.value) })} />
+          </label>
+          <label>
+            Labor Price
+            <input type="number" value={draft.labor_price || 0} onChange={(e) => setDraft({ ...draft, labor_price: Number(e.target.value) })} />
+          </label>
+          <label className="fullWidth">
+            Notes
+            <input value={draft.notes || ""} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+          </label>
+        </div>
+
+        <button className="primary wide" onClick={save}>
+          Save Product
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ShopHours({ ctx, reload }) {
+  const [draft, setDraft] = useState(ctx.shopSettings || {});
+
+  async function save() {
+    const { error } = draft.id
+      ? await supabase.from("shop_settings").update(draft).eq("id", draft.id)
+      : await supabase.from("shop_settings").insert({ ...draft, company_id: ctx.company.id });
+
+    if (error) return alert(error.message);
+
+    await reload();
+  }
+
+  return (
+    <Panel title="Shop Hours" chip="Schedule">
+      <div className="formGrid">
+        <label>
+          Open
+          <input type="time" value={shortTime(draft.shop_open || "08:00")} onChange={(e) => setDraft({ ...draft, shop_open: e.target.value })} />
+        </label>
+        <label>
+          Close
+          <input type="time" value={shortTime(draft.shop_close || "18:00")} onChange={(e) => setDraft({ ...draft, shop_close: e.target.value })} />
+        </label>
+        <label>
+          Lunch Start
+          <input type="time" value={shortTime(draft.lunch_start || "12:00")} onChange={(e) => setDraft({ ...draft, lunch_start: e.target.value })} />
+        </label>
+        <label>
+          Lunch End
+          <input type="time" value={shortTime(draft.lunch_end || "13:00")} onChange={(e) => setDraft({ ...draft, lunch_end: e.target.value })} />
+        </label>
+      </div>
+
+      <button className="primary wide" onClick={save}>
+        Save Shop Hours
+      </button>
+    </Panel>
+  );
+}
+
+function CloudStatus({ state }) {
+  return (
+    <section className="page">
+      <Panel title="Cloud status" chip="Supabase">
+        <div className="kpis">
+          <Kpi title="Technicians" value={state.technicians.length} caption="Loaded from cloud" />
+          <Kpi title="Products" value={state.products.length} caption="Loaded from cloud" />
+          <Kpi title="Jobs" value={state.jobs.length} caption="Loaded from cloud" />
+          <Kpi title="Company" value="Connected" caption={state.company?.name} />
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+
+function OutlookCalendar({ jobs, ctx, reload, selectedDate, setSelectedDate }) {
+  const [appointments, setAppointments] = useState(() => loadOutlookAppointments());
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [manual, setManual] = useState({ title: "", date: selectedDate || todayIso(), start: "08:00", body: "" });
+  const [pasteText, setPasteText] = useState("");
+  const [graphToken, setGraphToken] = useState(() => loadOutlookToken());
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState("");
+  const [rangeDays, setRangeDays] = useState(30);
+  const [showImported, setShowImported] = useState(false);
+  const [icsUrl, setIcsUrl] = useState(() => loadIcsFeedUrl());
+  const [icsLoading, setIcsLoading] = useState(false);
+  const [icsError, setIcsError] = useState("");
+  const [icsLastSync, setIcsLastSync] = useState(() => loadIcsLastSync());
+
+  const importedEventIds = useMemo(
+    () => new Set(jobs.map((job) => job.outlook_event_id).filter(Boolean)),
+    [jobs]
+  );
+
+  const visibleAppointments = useMemo(() => {
+    const sorted = [...appointments].sort((a, b) => `${a.date || "9999-12-31"}T${a.start || "23:59"}`.localeCompare(`${b.date || "9999-12-31"}T${b.start || "23:59"}`));
+    return showImported ? sorted : sorted.filter((appt) => !importedEventIds.has(appt.outlook_event_id));
+  }, [appointments, importedEventIds, showImported]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function finishMicrosoftSignIn() {
+      const authResult = readOutlookAuthCodeFromUrl();
+      if (!authResult?.code) return;
+
+      setGraphLoading(true);
+      setGraphError("");
+
+      try {
+        if (authResult.error) throw new Error(authResult.error);
+        const token = await exchangeOutlookCodeForToken(authResult.code, authResult.state);
+        if (cancelled) return;
+        setGraphToken(token);
+        saveOutlookToken(token);
+      } catch (err) {
+        if (!cancelled) setGraphError(err.message || "Microsoft sign-in failed.");
+      } finally {
+        if (!cancelled) setGraphLoading(false);
+      }
+    }
+
+    finishMicrosoftSignIn();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function saveAppointments(next) {
+    const deduped = dedupeOutlookAppointments(next);
+    setAppointments(deduped);
+    saveOutlookAppointments(deduped);
+  }
+
+  async function connectOutlook() {
+    const clientId = getMicrosoftClientId();
+    const tenantId = getMicrosoftTenantId();
+
+    if (!clientId) {
+      return alert("Missing VITE_MICROSOFT_CLIENT_ID. Add your Azure app client ID to Vercel, then redeploy.");
+    }
+
+    if (!tenantId) {
+      return alert("Missing VITE_MICROSOFT_TENANT_ID. Add your Azure Directory tenant ID to Vercel, then redeploy.");
+    }
+
+    if (tenantId.toLowerCase() === "common") {
+      return alert("VITE_MICROSOFT_TENANT_ID cannot be 'common' for this app. Use your Directory tenant ID instead.");
+    }
+
+    const verifier = makePkceVerifier();
+    const challenge = await makePkceChallenge(verifier);
+    const state = makeOutlookAuthState();
+    saveOutlookAuthRequest({ verifier, state });
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      response_type: "code",
+      redirect_uri: getOutlookRedirectUri(),
+      response_mode: "query",
+      scope: "openid profile offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.Read",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      state,
+      prompt: "select_account",
+    });
+
+    window.location.href = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+  }
+
+  function disconnectOutlook() {
+    clearOutlookToken();
+    setGraphToken("");
+    setGraphError("");
+  }
+
+  async function fetchOutlookAppointments() {
+    if (!graphToken) return connectOutlook();
+    setGraphLoading(true);
+    setGraphError("");
+
+    try {
+      const start = startOfDayIso(selectedDate || todayIso());
+      const end = startOfDayIso(addDaysIso(selectedDate || todayIso(), Number(rangeDays || 30)));
+      const url = new URL("https://graph.microsoft.com/v1.0/me/calendarView");
+      url.searchParams.set("startDateTime", start);
+      url.searchParams.set("endDateTime", end);
+      url.searchParams.set("$select", "id,subject,bodyPreview,start,end,location,organizer");
+      url.searchParams.set("$orderby", "start/dateTime");
+      url.searchParams.set("$top", "100");
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${graphToken}`,
+          Prefer: 'outlook.timezone="America/Chicago"',
+        },
+      });
+
+      if (response.status === 401) {
+        disconnectOutlook();
+        throw new Error("Microsoft sign-in expired. Connect Outlook again.");
+      }
+      if (!response.ok) throw new Error((await response.text()) || "Failed to load Outlook calendar.");
+
+      const data = await response.json();
+      const imported = (data.value || []).map(mapGraphEventToAppointment).filter(Boolean);
+      saveAppointments([...imported, ...appointments]);
+    } catch (err) {
+      setGraphError(err.message || "Unable to load Outlook appointments.");
+    } finally {
+      setGraphLoading(false);
+    }
+  }
+
+  function addManualAppointment(e) {
+    e.preventDefault();
+    const title = manual.title.trim();
+    if (!title) return alert("Appointment title is required.");
+    saveAppointments([makeOutlookAppointment({ title, date: manual.date || selectedDate || todayIso(), start: manual.start || "08:00", body: manual.body || "" }), ...appointments]);
+    setManual({ title: "", date: selectedDate || todayIso(), start: "08:00", body: "" });
+  }
+
+  function importPastedAppointments() {
+    const parsed = parseOutlookPaste(pasteText, selectedDate);
+    if (!parsed.length) return alert("No appointments found. Paste one appointment per line, or use: Title | 2026-06-17 | 08:00 | Notes");
+    saveAppointments([...parsed, ...appointments]);
+    setPasteText("");
+  }
+
+  function removeAppointment(id) {
+    saveAppointments(appointments.filter((appt) => appt.id !== id));
+  }
+
+  function clearImportedLocal() {
+    saveAppointments(appointments.filter((appt) => !importedEventIds.has(appt.outlook_event_id)));
+  }
+
+  function saveIcsSettings() {
+    saveIcsFeedUrl(icsUrl);
+    alert("ICS calendar feed saved.");
+  }
+
+  async function syncIcsFeed() {
+    const url = String(icsUrl || "").trim();
+    if (!url) return alert("Paste your Outlook ICS feed URL first.");
+
+    setIcsLoading(true);
+    setIcsError("");
+
+    try {
+      saveIcsFeedUrl(url);
+      const icsText = await fetchIcsFeedText(url);
+      const imported = parseIcsAppointments(icsText)
+        .filter((appt) => isAppointmentInRange(appt, selectedDate || todayIso(), Number(rangeDays || 30)));
+
+      if (!imported.length) {
+        saveAppointments(appointments);
+        setIcsError("The ICS feed loaded, but no appointments were found in the selected range.");
+        return;
+      }
+
+      saveAppointments([...imported, ...appointments]);
+      const syncedAt = new Date().toISOString();
+      setIcsLastSync(syncedAt);
+      saveIcsLastSync(syncedAt);
+    } catch (err) {
+      setIcsError(err.message || "Unable to load the ICS calendar feed.");
+    } finally {
+      setIcsLoading(false);
+    }
+  }
+
+  return (
+    <section className="page">
+      <div className="hero">
+        <div>
+          <p className="eyebrow">Outlook staging lane</p>
+          <h3>Auto-load Outlook appointments, then manually convert them to shop jobs</h3>
+          <p>Outlook can fill the queue automatically. Nothing becomes a shop job until you review it and click Import as Job.</p>
+        </div>
+        <div className="heroMetric">
+          <span>Ready to Import</span>
+          <strong>{visibleAppointments.length}</strong>
+        </div>
+      </div>
+
+      <Panel title="Outlook ICS calendar feed" chip={icsUrl ? "Feed saved" : "Paste ICS URL"}>
+        <div className="outlookForm">
+          <label>
+            ICS Feed URL
+            <input
+              value={icsUrl}
+              onChange={(e) => setIcsUrl(e.target.value)}
+              placeholder="Paste Outlook published calendar .ics link here"
+            />
+          </label>
+        </div>
+
+        <div className="outlookActions" style={{ marginTop: 10, marginBottom: 10 }}>
+          <button type="button" onClick={saveIcsSettings}>Save Feed URL</button>
+          <button className="primary" type="button" onClick={syncIcsFeed} disabled={icsLoading}>
+            {icsLoading ? "Syncing ICS feed..." : "Sync ICS appointments"}
+          </button>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}>
+            Range
+            <select value={rangeDays} onChange={(e) => setRangeDays(Number(e.target.value))}>
+              <option value={7}>Next 7 days</option>
+              <option value={30}>Next 30 days</option>
+              <option value={90}>Next 90 days</option>
+              <option value={180}>Next 180 days</option>
+              <option value={365}>Next 365 days</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}>
+            <input type="checkbox" checked={showImported} onChange={(e) => setShowImported(e.target.checked)} /> Show imported
+          </label>
+        </div>
+
+        <p className="outlookHelp">This uses your Outlook published ICS calendar feed. It is read-only, requires no Microsoft login, and appointments still must be reviewed before becoming shop jobs.</p>
+        {icsLastSync && <p className="outlookHelp">Last ICS sync: {new Date(icsLastSync).toLocaleString()}</p>}
+        {icsError && <p className="bad">{icsError}</p>}
+      </Panel>
+
+      <div className="outlookGrid" style={{ marginTop: 14 }}>
+        <Panel title="Fallback import" chip="Manual / paste">
+          <form className="outlookForm" onSubmit={addManualAppointment}>
+            <label>Appointment Title<input value={manual.title} onChange={(e) => setManual({ ...manual, title: e.target.value })} placeholder="Example: Smith - 2023 F-250 Airlift" /></label>
+            <label>Date<input type="date" value={manual.date} onChange={(e) => setManual({ ...manual, date: e.target.value })} /></label>
+            <label>Start Time<input type="time" value={manual.start} onChange={(e) => setManual({ ...manual, start: e.target.value })} /></label>
+            <label>Notes / Body<textarea value={manual.body} onChange={(e) => setManual({ ...manual, body: e.target.value })} placeholder="Paste Outlook appointment body, phone, vehicle, requested work, etc." /></label>
+            <button className="primary wide" type="submit">Add to import queue</button>
+          </form>
+
+          <div className="outlookForm" style={{ marginTop: 14 }}>
+            <label>Paste Outlook appointments<textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder={"One per line:\nSmith - 2023 F-250 Airlift | 2026-06-18 | 09:00 | WirelessOne notes"} /></label>
+            <button type="button" onClick={importPastedAppointments}>Parse pasted appointments</button>
+            <p className="outlookHelp">Recommended format: Title | Date | Start Time | Notes.</p>
+          </div>
+        </Panel>
+
+        <Panel title="Outlook import queue" chip="Review before scheduling">
+          <div className="outlookActions" style={{ marginBottom: 10 }}>
+            <button type="button" onClick={() => setSelectedDate(todayIso())}>Jump to Today</button>
+            <button type="button" onClick={clearImportedLocal}>Clear Imported</button>
+          </div>
+
+          <div className="outlookList">
+            {visibleAppointments.map((appt) => {
+              const imported = importedEventIds.has(appt.outlook_event_id);
+              const confidence = getAppointmentConfidence(appt, ctx.products);
+              return (
+                <article className={`outlookCard ${imported ? "imported" : ""}`} key={appt.id}>
+                  <div className="outlookCardTop">
+                    <div><h4>{appt.title}</h4><p>{formatOutlookDate(appt.date)} • {formatTime(appt.start)}</p></div>
+                    <span className={`outlookBadge ${imported ? "imported" : confidence.className}`}>{imported ? "Imported" : confidence.label}</span>
+                  </div>
+                  {appt.body && <p>{appt.body}</p>}
+                  <div className="outlookActions">
+                    <button type="button" onClick={() => { setSelectedDate(appt.date || todayIso()); setSelectedAppointment(appt); }} disabled={imported}>Import as Job</button>
+                    <button type="button" onClick={() => removeAppointment(appt.id)}>Remove</button>
+                  </div>
+                </article>
+              );
+            })}
+            {!visibleAppointments.length && <p className="muted">No Outlook appointments ready. Sync the ICS feed, or add one manually.</p>}
+          </div>
+        </Panel>
+      </div>
+
+      {selectedAppointment && <OutlookImportModal appointment={selectedAppointment} ctx={ctx} reload={reload} onClose={() => setSelectedAppointment(null)} />}
+    </section>
+  );
+}
+
+function OutlookImportModal({ appointment, ctx, reload, onClose }) {
+  const suggestedProductId = suggestProductIdFromText(ctx.products, `${appointment.title} ${appointment.body}`) || ctx.products[0]?.id || "";
+  const suggestedProduct = ctx.product(suggestedProductId);
+  const scheduledId = getStatusIdByName(ctx, "Scheduled") || ctx.statuses[0]?.id || "";
+  const [draft, setDraft] = useState({
+    customer: guessCustomerFromAppointment(appointment),
+    vehicle: guessVehicleFromAppointment(appointment),
+    product_id: suggestedProductId,
+    technician_id: ctx.technicians.find((t) => t.active)?.id || "",
+    status_id: scheduledId,
+    delay_reason_id: "",
+    scheduled_date: appointment.date || todayIso(),
+    start_time: appointment.start || "08:00",
+    book_hours: suggestedProduct?.book_hours || 0,
+    qc: "N/A",
+    notes: appointment.body || appointment.title || "",
+  });
+
+  function updateProduct(productId) {
+    const product = ctx.product(productId);
+    setDraft({ ...draft, product_id: productId, book_hours: product?.book_hours || draft.book_hours || 0 });
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    const product = ctx.product(draft.product_id);
+    const payload = {
+      company_id: ctx.company.id,
+      customer: draft.customer || appointment.title || "Outlook Customer",
+      vehicle: draft.vehicle || "Vehicle TBD",
+      product_id: draft.product_id || null,
+      technician_id: draft.technician_id || null,
+      status_id: draft.status_id || null,
+      delay_reason_id: draft.delay_reason_id || null,
+      scheduled_date: draft.scheduled_date || appointment.date || todayIso(),
+      start_time: draft.start_time || appointment.start || "08:00",
+      book_hours: Number(draft.book_hours || 0),
+      actual_hours: null,
+      labor_sold: product?.labor_price || null,
+      qc: draft.qc || "N/A",
+      notes: draft.notes || "",
+      outlook_event_id: appointment.outlook_event_id,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("jobs").insert(payload);
+    if (error) {
+      if ((error.message || "").toLowerCase().includes("duplicate")) {
+        return alert("This Outlook appointment has already been imported.");
+      }
+      return alert(error.message);
+    }
+
+    await reload();
+    onClose();
+  }
+
+  return (
+    <div className="modalBackdrop">
+      <form className="modal" onSubmit={submit}>
+        <div className="modalHeader">
+          <h3>Import Outlook Appointment</h3>
+          <button type="button" onClick={onClose}>×</button>
+        </div>
+
+        <div className="formGrid">
+          <label>
+            Customer
+            <input value={draft.customer} onChange={(e) => setDraft({ ...draft, customer: e.target.value })} required />
+          </label>
+          <label>
+            Vehicle
+            <input value={draft.vehicle} onChange={(e) => setDraft({ ...draft, vehicle: e.target.value })} required />
+          </label>
+          <label>
+            Product / Template
+            <select value={draft.product_id} onChange={(e) => updateProduct(e.target.value)}>
+              {ctx.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Technician
+            <select value={draft.technician_id} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}>
+              {ctx.technicians.filter((t) => t.active).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={draft.status_id} onChange={(e) => setDraft({ ...draft, status_id: e.target.value })}>
+              {ctx.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Scheduled Date
+            <input type="date" value={draft.scheduled_date} onChange={(e) => setDraft({ ...draft, scheduled_date: e.target.value })} />
+          </label>
+          <label>
+            Start Time
+            <input type="time" value={draft.start_time} onChange={(e) => setDraft({ ...draft, start_time: e.target.value })} />
+          </label>
+          <label>
+            Book Hours
+            <input type="number" step="0.25" value={draft.book_hours} onChange={(e) => setDraft({ ...draft, book_hours: e.target.value })} />
+          </label>
+          <label>
+            QC
+            <select value={draft.qc} onChange={(e) => setDraft({ ...draft, qc: e.target.value })}>
+              <option>Yes</option>
+              <option>No</option>
+              <option>N/A</option>
+            </select>
+          </label>
+          <label className="fullWidth">
+            Notes
+            <textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+          </label>
+        </div>
+
+        <button className="primary wide">Create Scheduled Job</button>
+      </form>
+    </div>
+  );
+}
+
+
+function EditJobModal({ job, ctx, reload, onClose }) {
+  const [draft, setDraft] = useState({
+    ...job,
+    product_id: job.product_id || "",
+    technician_id: job.technician_id || "",
+    status_id: job.status_id || "",
+    delay_reason_id: job.delay_reason_id || "",
+    customer: job.customer || "",
+    vehicle: job.vehicle || "",
+    start_time: shortTime(job.start_time || "08:00"),
+    scheduled_date: job.scheduled_date || todayIso(),
+    book_hours: job.book_hours || 0,
+    actual_hours: job.actual_hours ?? "",
+    qc: job.qc || "N/A",
+    notes: job.notes || "",
+  });
+
+  async function saveJob(e) {
+    e.preventDefault();
+
+    const payload = {
+      customer: draft.customer,
+      vehicle: draft.vehicle,
+      product_id: draft.product_id,
+      technician_id: draft.technician_id,
+      status_id: draft.status_id,
+      delay_reason_id: draft.delay_reason_id || null,
+      start_time: draft.start_time,
+      scheduled_date: draft.scheduled_date || todayIso(),
+      book_hours: Number(draft.book_hours || 0),
+      actual_hours: draft.actual_hours === "" ? null : Number(draft.actual_hours),
+      qc: draft.qc,
+      notes: draft.notes,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("jobs").update(payload).eq("id", job.id);
+    if (error) return alert(error.message);
+
+    await reload();
+    onClose();
+  }
+
+  return (
+    <div className="modalBackdrop">
+      <form className="modal" onSubmit={saveJob}>
+        <div className="modalHeader">
+          <h3>Edit Job</h3>
+          <button type="button" onClick={onClose}>×</button>
+        </div>
+
+        <div className="formGrid">
+          <label>
+            Customer
+            <input value={draft.customer} onChange={(e) => setDraft({ ...draft, customer: e.target.value })} />
+          </label>
+
+          <label>
+            Vehicle
+            <input value={draft.vehicle} onChange={(e) => setDraft({ ...draft, vehicle: e.target.value })} />
+          </label>
+
+          <label>
+            Product
+            <select value={draft.product_id} onChange={(e) => setDraft({ ...draft, product_id: e.target.value })}>
+              {ctx.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Technician
+            <select value={draft.technician_id} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}>
+              {ctx.technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Status
+            <select value={draft.status_id} onChange={(e) => setDraft({ ...draft, status_id: e.target.value })}>
+              {ctx.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Delay Reason
+            <select value={draft.delay_reason_id || ""} onChange={(e) => setDraft({ ...draft, delay_reason_id: e.target.value })}>
+              <option value="">None</option>
+              {ctx.delayReasons.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Scheduled Date
+            <input type="date" value={draft.scheduled_date} onChange={(e) => setDraft({ ...draft, scheduled_date: e.target.value })} />
+          </label>
+
+          <label>
+            Start Time
+            <input type="time" value={draft.start_time} onChange={(e) => setDraft({ ...draft, start_time: e.target.value })} />
+          </label>
+
+          <label>
+            Book Hours
+            <input type="number" step="0.25" value={draft.book_hours} onChange={(e) => setDraft({ ...draft, book_hours: e.target.value })} />
+          </label>
+
+          <label>
+            Actual Hours
+            <input type="number" step="0.25" value={draft.actual_hours} onChange={(e) => setDraft({ ...draft, actual_hours: e.target.value })} />
+          </label>
+
+          <label>
+            QC
+            <select value={draft.qc} onChange={(e) => setDraft({ ...draft, qc: e.target.value })}>
+              <option>Yes</option>
+              <option>No</option>
+              <option>N/A</option>
+            </select>
+          </label>
+
+          <label className="fullWidth">
+            Notes
+            <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+          </label>
+        </div>
+
+        <button className="primary wide">Save Job</button>
+      </form>
+    </div>
+  );
+}
+
+
+function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
+  const [productId, setProductId] = useState(ctx.products[0]?.id || "");
+  const product = ctx.product(productId);
+
+  async function submit(e) {
+    e.preventDefault();
+
+    const form = new FormData(e.currentTarget);
+
+    const job = {
+      company_id: ctx.company.id,
+      customer: form.get("customer"),
+      vehicle: form.get("vehicle"),
+      product_id: productId,
+      technician_id: form.get("technician_id"),
+      status_id: form.get("status_id"),
+      delay_reason_id: form.get("delay_reason_id"),
+      start_time: form.get("start_time"),
+      book_hours: Number(form.get("book_hours")),
+      actual_hours: null,
+      qc: form.get("qc"),
+      scheduled_date: form.get("scheduled_date") || selectedDate || todayIso(),
+      labor_sold: product?.labor_price || null,
+    };
+
+    const { error } = await supabase.from("jobs").insert(job);
+    if (error) return alert(error.message);
+
+    await reload();
+    onClose();
+  }
+
+  return (
+    <div className="modalBackdrop">
+      <form className="modal" onSubmit={submit}>
+        <div className="modalHeader">
+          <h3>New job</h3>
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="formGrid">
+          <label>
+            Customer
+            <input name="customer" required />
+          </label>
+          <label>
+            Vehicle
+            <input name="vehicle" required />
+          </label>
+          <label>
+            Product
+            <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+              {ctx.products.map((p) => (
+                <option value={p.id} key={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Technician
+            <select name="technician_id">
+              {ctx.technicians
+                .filter((t) => t.active)
+                .map((t) => (
+                  <option value={t.id} key={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Status
+            <select name="status_id">
+              {ctx.statuses.map((s) => (
+                <option value={s.id} key={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Delay reason
+            <select name="delay_reason_id">
+              {ctx.delayReasons.map((d) => (
+                <option value={d.id} key={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            QC
+            <select name="qc">
+              <option>Yes</option>
+              <option>No</option>
+              <option>N/A</option>
+            </select>
+          </label>
+          <label>
+            Scheduled Date
+            <input name="scheduled_date" type="date" defaultValue={selectedDate || todayIso()} />
+          </label>
+          <label>
+            Start
+            <input name="start_time" type="time" defaultValue="08:00" />
+          </label>
+          <label>
+            Book hours
+            <input name="book_hours" type="number" step="0.25" defaultValue={product?.book_hours || 0} />
+          </label>
+        </div>
+
+        <button className="primary wide">Add job</button>
+      </form>
+    </div>
+  );
+}
+
+function Kpi({ title, value, caption }) {
+  return (
+    <article className="kpi">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <p>{caption}</p>
+    </article>
+  );
+}
+
+function Panel({ title, chip, children }) {
+  return (
+    <section className="panel">
+      <div className="panelHead">
+        <h3>{title}</h3>
+        <span>{chip}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function JobCard({ job, ctx }) {
+  const product = ctx.product(job.product_id);
+  const tech = ctx.tech(job.technician_id);
+  const status = ctx.status(job.status_id);
+  const eff = efficiency(job);
+
+  return (
+    <article className="jobCard" style={{ borderLeftColor: status?.color || "#f59e0b" }}>
+      <div>
+        <h4>
+          {product?.name} — {job.vehicle}
+        </h4>
+        <p>
+          {job.customer} • {tech?.name} • {formatTime(shortTime(job.start_time))} • {job.book_hours} book hrs
+        </p>
+        <div className="chips">
+          <span>Actual: {job.actual_hours ?? "Open"}</span>
+          <span className={effClass(eff)}>Efficiency: {eff ? `${Math.round(eff)}%` : "—"}</span>
+        </div>
+      </div>
+      <StatusPill status={status} />
+    </article>
+  );
+}
+
+function StatusPill({ status }) {
+  return (
+    <span className="pill" style={{ background: hexToSoft(status?.color), color: status?.color }}>
+      {status?.name || "Unknown"}
+    </span>
+  );
+}
+
+function TechLeaderboard({ jobs, ctx, detailed = false }) {
+  const rows = ctx.technicians
+    .map((tech) => ({ tech, stats: getTechStats(jobs, ctx, tech.id) }))
+    .sort((a, b) => b.stats.efficiency - a.stats.efficiency);
+
+  return (
+    <div className="leaderList">
+      {rows.map(({ tech, stats }, index) => (
+        <div className="leader" key={tech.id}>
+          <div>
+            <b>
+              #{index + 1} {tech.name}
+            </b>
+            <span>
+              {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual
+              {detailed ? ` • ${stats.completedJobs} jobs • avg ${stats.avgActual.toFixed(2)}h` : ""}
+            </span>
+          </div>
+          <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Metric({ label, value, className = "" }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong className={className}>{value}</strong>
+    </div>
+  );
+}
+
+async function getCompany() {
+  const slug = getStoreSlug();
+  let query = supabase.from("companies").select("*").limit(1);
+  query = slug ? query.eq("slug", slug) : query.eq("name", "H&H Truck & Outdoor");
+  const { data, error } = await query.single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function fetchTable(table, companyId) {
+  const { data, error } = await supabase
+    .from(table)
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchJobs(companyId) {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+function calculateMetrics(jobs, ctx) {
+  const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
+  const bookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const actualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+
+  return {
+    capacity: Math.min(
+      100,
+      Math.round(
+        (jobs.reduce((a, j) => a + Number(j.book_hours || 0), 0) /
+          (ctx.technicians.filter((t) => t.active).length * 8 || 1)) *
+          100
+      )
+    ),
+    efficiency: actualUsed ? (bookComplete / actualUsed) * 100 : 0,
+    completedJobs: completed.length,
+    bookComplete,
+    actualUsed,
+    avgActualTime: completed.length ? actualUsed / completed.length : 0,
+  };
+}
+
+
+function makeContext(state) {
+  const product = (id) => state.products.find((p) => p.id === id);
+  const category = (id) => state.categories.find((c) => c.id === id);
+  const laborRate = (id) => state.laborRates.find((r) => r.id === id);
+  const status = (id) => state.statuses.find((s) => s.id === id);
+  const tech = (id) => state.technicians.find((t) => t.id === id);
+  const isComplete = (statusId) => (status(statusId)?.name || "").toLowerCase().includes("complete");
+
+  const laborSold = (job) => {
+    const p = product(job.product_id);
+    if (job.labor_sold) return Number(job.labor_sold);
+    if (p?.labor_price && Number(p.book_hours) === Number(job.book_hours)) return Number(p.labor_price);
+
+    const cat = category(p?.category_id);
+    const rate =
+      laborRate(cat?.labor_rate_id) ||
+      state.laborRates.find((r) => r.name === "Standard Labor");
+
+    if (rate?.rate_type === "flat") return Number(rate.amount);
+    return Number(job.book_hours || 0) * Number(rate?.amount || 0);
+  };
+
+  return {
+    ...state,
+    product,
+    category,
+    laborRate,
+    status,
+    tech,
+    isComplete,
+    laborSold,
+  };
+}
+
+function emptyState() {
+  return {
+    company: null,
+    laborRates: [],
+    technicians: [],
+    categories: [],
+    statuses: [],
+    delayReasons: [],
+    products: [],
+    shopSettings: null,
+    jobs: [],
+  };
+}
+
+function buildTimeSlots(open, close) {
+  const [oh, om] = shortTime(open).split(":").map(Number);
+  const [ch, cm] = shortTime(close).split(":").map(Number);
+  const slots = [];
+  let minutes = oh * 60 + om;
+  const end = ch * 60 + cm;
+
+  while (minutes < end) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    minutes += 30;
+  }
+
+  return slots;
+}
+
+function shortTime(value) {
+  if (!value) return "08:00";
+  return String(value).slice(0, 5);
+}
+
+function getJobStartedAt(job) {
+  if (!job?.production_started_at) return null;
+  const d = new Date(job.production_started_at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function getScheduledStartDate(job) {
+  if (!job?.scheduled_date || !job?.start_time) return null;
+  const d = new Date(`${job.scheduled_date}T${shortTime(job.start_time)}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function roundHours(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function efficiency(job) {
+  const bookHours = Number(job?.book_hours || 0);
+  const actualHours = Number(job?.actual_hours || 0);
+
+  if (!Number.isFinite(bookHours) || !Number.isFinite(actualHours)) return null;
+  if (bookHours <= 0 || actualHours <= 0) return null;
+
+  return Math.min(999, (bookHours / actualHours) * 100);
+}
+
+function effClass(value) {
+  const eff = Number(value);
+  if (!Number.isFinite(eff) || eff <= 0) return "";
+
+  if (eff >= 100) return "good";
+  if (eff >= 90) return "warn";
+  return "bad";
+}
+
+function money(value) {
+  return Number(value || 0).toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatTime(value) {
+  const [h, m] = shortTime(value).split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatShortDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function hexToSoft(hex = "#64748b") {
+  return `${hex}1a`;
+}
+
+
+function getStatusIdByName(ctx, name) {
+  return ctx.statuses.find((s) => (s.name || "").toLowerCase() === name.toLowerCase())?.id || "";
+}
+
+function getMicrosoftClientId() {
+  return import.meta?.env?.VITE_MICROSOFT_CLIENT_ID || "";
+}
+
+function getMicrosoftTenantId() {
+  return import.meta?.env?.VITE_MICROSOFT_TENANT_ID || "";
+}
+
+function getOutlookRedirectUri() {
+  if (typeof window === "undefined") return "";
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function readOutlookAuthCodeFromUrl() {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search || "");
+  const code = params.get("code") || "";
+  const state = params.get("state") || "";
+  const error = params.get("error_description") || params.get("error") || "";
+
+  if (!code && !error) return null;
+
+  const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+  window.history.replaceState({}, document.title, cleanUrl);
+
+  return { code, state, error };
+}
+
+async function exchangeOutlookCodeForToken(code, returnedState) {
+  const clientId = getMicrosoftClientId();
+  const tenantId = getMicrosoftTenantId();
+  const authRequest = loadOutlookAuthRequest();
+
+  if (!authRequest?.verifier) throw new Error("Missing Microsoft PKCE verifier. Start Outlook sign-in again.");
+  if (!authRequest?.state || authRequest.state !== returnedState) throw new Error("Microsoft sign-in state mismatch. Start Outlook sign-in again.");
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: getOutlookRedirectUri(),
+    code_verifier: authRequest.verifier,
+    scope: "openid profile offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.Read",
+  });
+
+  const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  clearOutlookAuthRequest();
+
+  if (!response.ok) {
+    throw new Error(data.error_description || data.error || "Microsoft token exchange failed.");
+  }
+
+  if (!data.access_token) throw new Error("Microsoft did not return an access token.");
+  return data.access_token;
+}
+
+function makePkceVerifier() {
+  const array = new Uint8Array(64);
+  window.crypto.getRandomValues(array);
+  return base64UrlEncode(array);
+}
+
+async function makePkceChallenge(verifier) {
+  const bytes = new TextEncoder().encode(verifier);
+  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function makeOutlookAuthState() {
+  const array = new Uint8Array(16);
+  window.crypto.getRandomValues(array);
+  return base64UrlEncode(array);
+}
+
+function saveOutlookAuthRequest(request) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem("hhpm_outlook_auth_request", JSON.stringify(request || {}));
+}
+
+function loadOutlookAuthRequest() {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(window.sessionStorage.getItem("hhpm_outlook_auth_request") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function clearOutlookAuthRequest() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem("hhpm_outlook_auth_request");
+}
+
+function loadOutlookToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("hhpm_outlook_graph_token") || "";
+}
+
+function saveOutlookToken(token) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("hhpm_outlook_graph_token", token || "");
+}
+
+function clearOutlookToken() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("hhpm_outlook_graph_token");
+}
+
+function addDaysIso(dateIso, days) {
+  const date = new Date(`${dateIso || todayIso()}T00:00:00`);
+  date.setDate(date.getDate() + Number(days || 0));
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function startOfDayIso(dateIso) {
+  return `${dateIso || todayIso()}T00:00:00`;
+}
+
+function mapGraphEventToAppointment(event) {
+  if (!event?.id) return null;
+  const startDateTime = event.start?.dateTime || "";
+  const date = normalizeDateInput(startDateTime.slice(0, 10)) || todayIso();
+  const start = shortTime(startDateTime.slice(11, 16) || "08:00");
+  const title = event.subject || "Outlook Appointment";
+  const bodyParts = [
+    event.bodyPreview,
+    event.location?.displayName ? `Location: ${event.location.displayName}` : "",
+    event.organizer?.emailAddress?.name || event.organizer?.emailAddress?.address ? `Organizer: ${event.organizer?.emailAddress?.name || ""} ${event.organizer?.emailAddress?.address || ""}` : "",
+  ].filter(Boolean);
+
+  return {
+    id: `graph-${event.id}`,
+    outlook_event_id: `graph-${event.id}`,
+    title,
+    date,
+    start,
+    body: bodyParts.join("\n"),
+    source: "Microsoft Graph",
+    raw: event,
+  };
+}
+
+function dedupeOutlookAppointments(appointments) {
+  const seen = new Set();
+  return appointments.filter((appt) => {
+    const key = appt.outlook_event_id || appt.id;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getAppointmentConfidence(appt, products = []) {
+  const text = `${appt.title || ""} ${appt.body || ""}`;
+  const hasProduct = Boolean(suggestProductIdFromText(products, text));
+  const hasVehicle = guessVehicleFromAppointment(appt) !== "Vehicle TBD";
+  if (hasProduct && hasVehicle) return { label: "High match", className: "high" };
+  if (hasProduct || hasVehicle) return { label: "Needs review", className: "medium" };
+  return { label: "Missing info", className: "low" };
+}
+
+function loadOutlookAppointments() {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(window.localStorage.getItem("hhpm_outlook_queue") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveOutlookAppointments(appointments) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem("hhpm_outlook_queue", JSON.stringify(appointments));
+  }
+}
+
+function makeOutlookAppointment({ title, date, start, body }) {
+  const cleanTitle = title || "Outlook Appointment";
+  const cleanDate = normalizeDateInput(date) || todayIso();
+  const cleanStart = normalizeTimeInput(start) || "08:00";
+  const seed = `${cleanTitle}|${cleanDate}|${cleanStart}|${body || ""}`;
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    outlook_event_id: `manual-${hashString(seed)}`,
+    title: cleanTitle,
+    date: cleanDate,
+    start: cleanStart,
+    body: body || "",
+  };
+}
+
+function parseOutlookPaste(text, fallbackDate) {
+  return String(text || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("|").map((part) => part.trim());
+      if (parts.length >= 3) {
+        return makeOutlookAppointment({
+          title: parts[0],
+          date: parts[1] || fallbackDate || todayIso(),
+          start: parts[2] || "08:00",
+          body: parts.slice(3).join(" | "),
+        });
+      }
+
+      const dateMatch = line.match(/\b(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})\b/);
+      const timeMatch = line.match(/\b(\d{1,2}:\d{2}\s?(?:AM|PM|am|pm)?|\d{1,2}\s?(?:AM|PM|am|pm))\b/);
+      let title = line;
+      if (dateMatch) title = title.replace(dateMatch[0], "").trim();
+      if (timeMatch) title = title.replace(timeMatch[0], "").trim();
+      title = title.replace(/^[|,\-\s]+|[|,\-\s]+$/g, "") || line;
+
+      return makeOutlookAppointment({
+        title,
+        date: dateMatch ? dateMatch[0] : fallbackDate || todayIso(),
+        start: timeMatch ? timeMatch[0] : "08:00",
+        body: line,
+      });
+    });
+}
+
+
+function loadIcsFeedUrl() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("hhpm_ics_feed_url") || "";
+}
+
+function saveIcsFeedUrl(url) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("hhpm_ics_feed_url", String(url || "").trim());
+}
+
+function loadIcsLastSync() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("hhpm_ics_last_sync") || "";
+}
+
+function saveIcsLastSync(value) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("hhpm_ics_last_sync", value || "");
+}
+
+async function fetchIcsFeedText(url) {
+  const cleanUrl = String(url || "").trim();
+  if (!cleanUrl) throw new Error("Missing ICS feed URL.");
+
+  const localProxy = `/api/ics?url=${encodeURIComponent(cleanUrl)}`;
+  const attempts = [localProxy];
+
+  let lastError = "";
+  for (const attempt of attempts) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
+      const response = await fetch(attempt, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        let message = `HTTP ${response.status}`;
+        try {
+          const payload = await response.json();
+          if (payload?.error) message = payload.error;
+        } catch (_) {}
+        throw new Error(message);
+      }
+
+      const text = await response.text();
+      if (!/BEGIN:VCALENDAR|BEGIN:VEVENT/i.test(text)) {
+        throw new Error("That URL did not return a valid ICS calendar.");
+      }
+      return text;
+    } catch (err) {
+      lastError = err.name === "AbortError" ? "ICS request timed out." : (err.message || String(err));
+    }
+  }
+
+  throw new Error(`Unable to load the ICS feed through the Vercel proxy. ${lastError}`);
+}
+
+function parseIcsAppointments(icsText) {
+  const unfolded = String(icsText || "").replace(/\r?\n[ \t]/g, "");
+  const events = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
+
+  return events
+    .map((block) => {
+      const uid = getIcsField(block, "UID") || hashString(block);
+      const title = decodeIcsText(getIcsField(block, "SUMMARY") || "Outlook Appointment");
+      const description = decodeIcsText(getIcsField(block, "DESCRIPTION") || "");
+      const location = decodeIcsText(getIcsField(block, "LOCATION") || "");
+      const dtStart = getIcsField(block, "DTSTART");
+      const parsedStart = parseIcsDateTime(dtStart);
+      if (!parsedStart?.date) return null;
+
+      const body = [description, location ? `Location: ${location}` : ""]
+        .filter(Boolean)
+        .join("\n");
+
+      return {
+        id: `ics-${hashString(`${uid}|${parsedStart.date}|${parsedStart.time}`)}`,
+        outlook_event_id: `ics-${uid}`,
+        title,
+        date: parsedStart.date,
+        start: parsedStart.time || "08:00",
+        body,
+        source: "ICS Feed",
+      };
+    })
+    .filter(Boolean);
+}
+
+function getIcsField(block, fieldName) {
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`^${escaped}(?:;[^:]*)?:(.*)$`, "im");
+  return block.match(regex)?.[1]?.trim() || "";
+}
+
+function decodeIcsText(value) {
+  return String(value || "")
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function parseIcsDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const dateOnly = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (dateOnly) return { date: `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`, time: "08:00" };
+
+  const dateTime = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/);
+  if (!dateTime) return null;
+
+  if (dateTime[7]) {
+    const utc = new Date(Date.UTC(
+      Number(dateTime[1]),
+      Number(dateTime[2]) - 1,
+      Number(dateTime[3]),
+      Number(dateTime[4]),
+      Number(dateTime[5]),
+      Number(dateTime[6] || 0)
+    ));
+    return {
+      date: toLocalIsoDate(utc),
+      time: `${String(utc.getHours()).padStart(2, "0")}:${String(utc.getMinutes()).padStart(2, "0")}`,
+    };
+  }
+
+  return {
+    date: `${dateTime[1]}-${dateTime[2]}-${dateTime[3]}`,
+    time: `${dateTime[4]}:${dateTime[5]}`,
+  };
+}
+
+function toLocalIsoDate(date) {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function isAppointmentInRange(appt, startDate, days) {
+  const start = startDate || todayIso();
+  const end = addDaysIso(start, Number(days || 30));
+  return (appt.date || "") >= start && (appt.date || "") <= end;
+}
+
+function normalizeDateInput(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slash) {
+    const month = slash[1].padStart(2, "0");
+    const day = slash[2].padStart(2, "0");
+    const year = slash[3].length === 2 ? `20${slash[3]}` : slash[3];
+    return `${year}-${month}-${day}`;
+  }
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) {
+    const offset = d.getTimezoneOffset();
+    return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+  }
+  return "";
+}
+
+function normalizeTimeInput(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  const twentyFour = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (twentyFour) return `${twentyFour[1].padStart(2, "0")}:${twentyFour[2]}`;
+  const ampm = raw.match(/^(\d{1,2})(?::(\d{2}))?\s?(AM|PM|am|pm)$/);
+  if (ampm) {
+    let h = Number(ampm[1]);
+    const m = ampm[2] || "00";
+    const suffix = ampm[3].toLowerCase();
+    if (suffix === "pm" && h < 12) h += 12;
+    if (suffix === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${m}`;
+  }
+  return raw.slice(0, 5);
+}
+
+function hashString(value) {
+  let hash = 0;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function guessCustomerFromAppointment(appointment) {
+  const title = appointment.title || "";
+  const beforeDash = title.split(/[-–—|]/)[0]?.trim();
+  return beforeDash || title || "Outlook Customer";
+}
+
+function guessVehicleFromAppointment(appointment) {
+  const text = `${appointment.title || ""} ${appointment.body || ""}`;
+  const vehicle = text.match(/\b(19|20)\d{2}\s+[A-Za-z]+\s+[A-Za-z0-9][A-Za-z0-9\- ]{1,30}\b/);
+  return vehicle ? vehicle[0].trim() : "Vehicle TBD";
+}
+
+function suggestProductIdFromText(products, text) {
+  const haystack = String(text || "").toLowerCase();
+  const exact = products.find((product) => haystack.includes((product.name || "").toLowerCase()));
+  if (exact) return exact.id;
+
+  const keywordMap = [
+    ["airlift", "airlift"],
+    ["air lift", "airlift"],
+    ["wireless", "wireless"],
+    ["gooseneck", "gooseneck"],
+    ["b&w", "gooseneck"],
+    ["bedliner", "bedliner"],
+    ["bed liner", "bedliner"],
+    ["camper", "camper"],
+    ["shell", "camper"],
+    ["level", "level"],
+    ["lift", "lift"],
+    ["tint", "tint"],
+  ];
+
+  for (const [needle, productNeedle] of keywordMap) {
+    if (haystack.includes(needle)) {
+      const match = products.find((product) => (product.name || "").toLowerCase().includes(productNeedle));
+      if (match) return match.id;
+    }
+  }
+
+  return "";
+}
+
+function formatOutlookDate(value) {
+  const normalized = normalizeDateInput(value) || value;
+  const d = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return normalized || "No date";
+  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
+
+function todayIso() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function getStoreSlug() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  const queryStore = params.get("store");
+  if (queryStore) return queryStore;
+  const firstPath = window.location.pathname.split("/").filter(Boolean)[0];
+  return firstPath && firstPath !== "app" ? firstPath : "";
+}
+
+function jobDate(job) {
+  return job.scheduled_date || todayIso();
+}
+
+function jobsForDate(jobs, date) {
+  return jobs.filter((job) => jobDate(job) === date);
+}
+
+async function rollForwardOverdueJobs(companyId, jobs, statuses) {
+  const today = todayIso();
+  const completeIds = statuses
+    .filter((s) => (s.name || "").toLowerCase().includes("complete"))
+    .map((s) => s.id);
+
+  const overdue = jobs.filter(
+    (job) =>
+      job.scheduled_date &&
+      job.scheduled_date < today &&
+      !completeIds.includes(job.status_id)
+  );
+
+  if (!overdue.length) return jobs;
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({ scheduled_date: today, updated_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .in("id", overdue.map((job) => job.id));
+
+  if (error) {
+    console.error(error);
+    return jobs;
+  }
+
+  const { data, error: reloadError } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false });
+
+  if (reloadError) {
+    console.error(reloadError);
+    return jobs;
+  }
+
+  return data || jobs;
+}
+
+function loadAccess() {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(window.localStorage.getItem("hhpm_access") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveAccess(access) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem("hhpm_access", JSON.stringify(access));
+  }
+  return access;
+}
+
+function getAllowedViewNames(access) {
+  const role = access?.role || "manager";
+  if (role === "tech") return ["Mobile Manager", "Schedule"];
+  if (role === "foreman") return ["Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log"];
+  if (role === "manager") return ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Cloud Status"];
+  return nav.map(([name]) => name);
+}
+
+function filterJobsForAccess(jobs, access) {
+  if (access?.role === "tech" && access?.technicianId) {
+    return jobs.filter((job) => job.technician_id === access.technicianId);
+  }
+  return jobs;
+}
+
+function requestNotificationPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission === "default") Notification.requestPermission().catch(() => {});
+}
+
+function notifyUser(message) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission === "granted") {
+    new Notification("H&H Production", { body: message });
+  }
+}
+
+function AccessGate({ technicians, onSave }) {
+  const [role, setRole] = useState("manager");
+  const [technicianId, setTechnicianId] = useState(technicians[0]?.id || "");
+
+  function submit(e) {
+    e.preventDefault();
+    const access = saveAccess({ role, technicianId: role === "tech" ? technicianId : "" });
+    onSave(access);
+  }
+
+  return (
+    <div className="accessGate">
+      <form className="accessPanel" onSubmit={submit}>
+        <div className="brandLogo">H&H</div>
+        <h1>Production Access</h1>
+        <p className="muted">Choose the mode for this device. For full security, connect this to Supabase Auth before multi-store rollout.</p>
+        <label>
+          Role
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="foreman">Foreman</option>
+            <option value="tech">Technician</option>
+          </select>
+        </label>
+        {role === "tech" && (
+          <label>
+            Technician
+            <select value={technicianId} onChange={(e) => setTechnicianId(e.target.value)}>
+              {technicians.filter((t) => t.active).map((tech) => (
+                <option value={tech.id} key={tech.id}>{tech.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button className="primary wide">Continue</button>
+      </form>
+    </div>
+  );
+}
+
+function LiveTechnicianAvailability({ jobs, ctx }) {
+  const now = new Date();
+
+  function getTechCurrentJob(techId) {
+    const activeStatusNames = ["In Progress", "Waiting", "QC"];
+
+    return jobs
+      .filter(
+        (j) =>
+          j.technician_id === techId &&
+          !ctx.isComplete(j.status_id) &&
+          activeStatusNames.includes(ctx.status(j.status_id)?.name)
+      )
+      .sort((a, b) => {
+        const aStarted = a.production_started_at || a.updated_at || a.created_at || "";
+        const bStarted = b.production_started_at || b.updated_at || b.created_at || "";
+        return String(aStarted).localeCompare(String(bStarted));
+      })[0];
+  }
+
+  function getProjectedFinish(job) {
+    if (!job?.book_hours) return null;
+
+    let start = null;
+
+    if (job.production_started_at) {
+      start = new Date(job.production_started_at);
+    } else if (job.start_time) {
+      const [h, m] = shortTime(job.start_time).split(":").map(Number);
+      start = new Date();
+      start.setHours(h, m, 0, 0);
+    }
+
+    if (!start || Number.isNaN(start.getTime())) return null;
+
+    return new Date(start.getTime() + Number(job.book_hours) * 60 * 60 * 1000);
+  }
+
+  function getTimeRemaining(finish, hasCurrentJob) {
+    if (!finish) return hasCurrentJob ? "Unknown" : "0:00";
+
+    const diffMs = finish - now;
+    const totalMinutes = Math.ceil(Math.abs(diffMs) / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const value = `${hours}:${String(minutes).padStart(2, "0")}`;
+
+    return diffMs < 0 ? `-${value}` : value;
+  }
+
+  function isOverdue(finish, hasCurrentJob) {
+    return Boolean(hasCurrentJob && finish && finish < now);
+  }
+
+  function formatAvailableAt(finish, hasCurrentJob) {
+    if (!hasCurrentJob) return "Now";
+    if (!finish) return "Unknown";
+    if (finish <= now) return "Overdue";
+    return finish.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function getNextJob(techId, currentJobId) {
+    return jobs.find(
+      (j) =>
+        j.technician_id === techId &&
+        j.id !== currentJobId &&
+        ctx.status(j.status_id)?.name === "Scheduled"
+    );
+  }
+
+  return (
+    <Panel title="Live Technician Availability" chip="Current">
+      <div className="availabilityTable">
+        <div className="availabilityRow availabilityHeader">
+          <span>Technician</span>
+          <span>Current Job</span>
+          <span>Status</span>
+          <span>Time Remaining</span>
+          <span>Available At</span>
+          <span>Next Job</span>
+        </div>
+
+        {ctx.technicians
+          .filter((t) => t.active)
+          .map((tech) => {
+            const currentJob = getTechCurrentJob(tech.id);
+            const finish = getProjectedFinish(currentJob);
+            const overdue = isOverdue(finish, Boolean(currentJob));
+            const nextJob = getNextJob(tech.id, currentJob?.id);
+            const status = currentJob
+              ? overdue
+                ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
+                : ctx.status(currentJob.status_id)?.name
+              : "Available";
+            const product = currentJob ? ctx.product(currentJob.product_id)?.name : "Available";
+            const nextProduct = nextJob ? ctx.product(nextJob.product_id)?.name : "—";
+
+            return (
+              <div
+                className={`availabilityRow ${
+                  overdue
+                    ? "availabilityOverdue"
+                    : currentJob
+                      ? "availabilityBusy"
+                      : "availabilityAvailable"
+                }`}
+                key={tech.id}
+              >
+                <strong>{tech.name}</strong>
+                <span>{product}</span>
+                <span>{status}</span>
+                <span className={overdue ? "negativeTime" : ""}>{getTimeRemaining(finish, Boolean(currentJob))}</span>
+                <span>{formatAvailableAt(finish, Boolean(currentJob))}</span>
+                <span>{nextProduct}</span>
+              </div>
+            );
+          })}
+      </div>
+    </Panel>
+  );
+}
