@@ -5,7 +5,7 @@ import {
   ClipboardList,
   Database,
   Edit3,
-  LayoutDashboar,
+  LayoutDashboard,
   Plus,
   RefreshCw,
   Save,
