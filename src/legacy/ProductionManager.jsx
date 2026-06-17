@@ -266,7 +266,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} />
         )}
-        {view === "Dashboard" && <Dashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />}
+        {view === "Dashboard" && <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
@@ -576,7 +576,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
   );
 }
 
-function Dashboard({ jobs, ctx, metrics, selectedDate }) {
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
 
   return (
@@ -657,8 +657,8 @@ function Dashboard({ jobs, ctx, metrics, selectedDate }) {
             )}
           </div>
         </Panel>
-        <Panel title="Efficiency leaders" chip="Completed">
-          <TechLeaderboard jobs={jobs} ctx={ctx} />
+        <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
+          <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
         </Panel>
       </div>
     </section>
@@ -1137,8 +1137,8 @@ function PerformanceCenter({ jobs, ctx, metrics }) {
           {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
         </Panel>
 
-        <Panel title="Shop Leaderboard" chip="Efficiency">
-          <TechLeaderboard jobs={jobs} ctx={ctx} detailed />
+        <Panel title="Monthly Leaderboard" chip={currentMonthLabel()}>
+          <TechLeaderboard jobs={jobs} ctx={ctx} detailed monthly />
         </Panel>
       </div>
 
@@ -1299,7 +1299,7 @@ function MiniStat({ label, value }) {
 // 8) Add these helper functions near the bottom:
 function getTechStats(jobs, ctx, technicianId) {
   const completed = jobs.filter(
-    (j) => j.technician_id === technicianId && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
+    (j) => (!technicianId || j.technician_id === technicianId) && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
   );
 
   const bookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
@@ -2522,29 +2522,70 @@ function StatusPill({ status }) {
   );
 }
 
-function TechLeaderboard({ jobs, ctx, detailed = false }) {
+function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
+  const sourceJobs = monthly ? currentMonthCompletedJobs(jobs, ctx) : jobs;
   const rows = ctx.technicians
-    .map((tech) => ({ tech, stats: getTechStats(jobs, ctx, tech.id) }))
-    .sort((a, b) => b.stats.efficiency - a.stats.efficiency);
+    .map((tech) => {
+      const stats = getTechStats(sourceJobs, ctx, tech.id);
+      return { tech, stats, savedHours: stats.bookHours - stats.actualHours };
+    })
+    .sort((a, b) => {
+      if (b.stats.efficiency !== a.stats.efficiency) return b.stats.efficiency - a.stats.efficiency;
+      if (b.stats.completedJobs !== a.stats.completedJobs) return b.stats.completedJobs - a.stats.completedJobs;
+      return b.stats.bookHours - a.stats.bookHours;
+    });
+
+  const shopStats = getTechStats(sourceJobs, ctx, null);
+  const best = rows.find((row) => row.stats.completedJobs > 0);
 
   return (
     <div className="leaderList">
-      {rows.map(({ tech, stats }, index) => (
-        <div className="leader" key={tech.id}>
+      {monthly && (
+        <div className="leader monthlySummary">
           <div>
-            <b>
-              #{index + 1} {tech.name}
-            </b>
+            <b>{currentMonthLabel()} Shop Average</b>
             <span>
-              {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual
-              {detailed ? ` • ${stats.completedJobs} jobs • avg ${stats.avgActual.toFixed(2)}h` : ""}
+              {shopStats.completedJobs} jobs • {shopStats.bookHours.toFixed(1)} book hrs • Best: {best?.tech?.name || "—"}
             </span>
           </div>
-          <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+          <strong className={effClass(shopStats.efficiency)}>{shopStats.efficiency ? `${Math.round(shopStats.efficiency)}%` : "—"}</strong>
         </div>
-      ))}
+      )}
+      {rows.map(({ tech, stats, savedHours }, index) => {
+        const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`;
+        return (
+          <div className={`leader ${index < 3 ? `leaderTop${index + 1}` : ""}`} key={tech.id}>
+            <div>
+              <b>
+                {medal} {tech.name}
+              </b>
+              <span>
+                {stats.completedJobs} jobs • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
+                {detailed ? ` • avg ${stats.avgActual.toFixed(2)}h` : ""}
+              </span>
+            </div>
+            <strong className={effClass(stats.efficiency)}>{stats.efficiency ? `${Math.round(stats.efficiency)}%` : "—"}</strong>
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+function currentMonthCompletedJobs(jobs, ctx) {
+  const now = new Date();
+  return jobs.filter((job) => {
+    if (!ctx.isComplete(job.status_id)) return false;
+    const completedAt = job.production_completed_at || job.updated_at || job.created_at;
+    if (!completedAt) return false;
+    const d = new Date(completedAt);
+    if (Number.isNaN(d.getTime())) return false;
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+}
+
+function currentMonthLabel() {
+  return new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
 function Metric({ label, value, className = "" }) {
