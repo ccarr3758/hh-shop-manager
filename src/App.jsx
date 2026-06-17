@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  BarChart3,
   CalendarDays,
   ClipboardList,
   Database,
@@ -9,10 +10,7 @@ import {
   Settings,
   Smartphone,
   UserCheck,
-  Wrench,
-  Edit3,
-  Save,
-  X,
+  Wrench
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
