@@ -441,7 +441,7 @@ function Dashboard({ jobs, ctx, metrics }) {
     </section>
   );
 }
-
+<LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
 function Schedule({ jobs, ctx }) {
   const activeTechs = ctx.technicians.filter((t) => t.active);
   const times = buildTimeSlots(
@@ -1606,4 +1606,96 @@ function formatTime(value) {
 
 function hexToSoft(hex = "#64748b") {
   return `${hex}1a`;
+}
+function LiveTechnicianAvailability({ jobs, ctx }) {
+  const now = new Date();
+
+  function getTechCurrentJob(techId) {
+    return jobs.find(
+      (j) =>
+        j.technician_id === techId &&
+        !ctx.isComplete(j.status_id) &&
+        ["In Progress", "Waiting", "QC"].includes(ctx.status(j.status_id)?.name)
+    );
+  }
+
+  function getProjectedFinish(job) {
+    if (!job?.start_time || !job?.book_hours) return null;
+
+    const [h, m] = shortTime(job.start_time).split(":").map(Number);
+    const start = new Date();
+    start.setHours(h, m, 0, 0);
+
+    const finish = new Date(start.getTime() + Number(job.book_hours) * 60 * 60 * 1000);
+    return finish;
+  }
+
+  function getTimeRemaining(finish) {
+    if (!finish) return "0:00";
+
+    const diffMs = finish - now;
+    if (diffMs <= 0) return "0:00";
+
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    return `${hours}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  function formatAvailableAt(finish) {
+    if (!finish || finish <= now) return "Now";
+    return finish.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function getNextJob(techId, currentJobId) {
+    return jobs.find(
+      (j) =>
+        j.technician_id === techId &&
+        j.id !== currentJobId &&
+        ctx.status(j.status_id)?.name === "Scheduled"
+    );
+  }
+
+  return (
+    <Panel title="Live Technician Availability" chip="Current">
+      <div className="availabilityTable">
+        <div className="availabilityRow availabilityHeader">
+          <span>Technician</span>
+          <span>Current Job</span>
+          <span>Status</span>
+          <span>Time Remaining</span>
+          <span>Available At</span>
+          <span>Next Job</span>
+        </div>
+
+        {ctx.technicians
+          .filter((t) => t.active)
+          .map((tech) => {
+            const currentJob = getTechCurrentJob(tech.id);
+            const finish = getProjectedFinish(currentJob);
+            const nextJob = getNextJob(tech.id, currentJob?.id);
+            const status = currentJob ? ctx.status(currentJob.status_id)?.name : "Available";
+            const product = currentJob ? ctx.product(currentJob.product_id)?.name : "Available";
+            const nextProduct = nextJob ? ctx.product(nextJob.product_id)?.name : "—";
+
+            return (
+              <div
+                className={`availabilityRow ${
+                  currentJob ? "availabilityBusy" : "availabilityAvailable"
+                }`}
+                key={tech.id}
+              >
+                <strong>{tech.name}</strong>
+                <span>{product}</span>
+                <span>{status}</span>
+                <span>{getTimeRemaining(finish)}</span>
+                <span>{formatAvailableAt(finish)}</span>
+                <span>{nextProduct}</span>
+              </div>
+            );
+          })}
+      </div>
+    </Panel>
+  );
 }
