@@ -17,6 +17,7 @@ import {
 import { supabase } from "./supabaseClient";
 
 const nav = [
+  ["Performance", BarChart3],
   ["Mobile Manager", Smartphone],
   ["Dashboard", LayoutDashboard],
   ["Schedule", CalendarDays],
@@ -195,6 +196,9 @@ export default function App() {
           </div>
         </header>
 
+        {view === "Performance" && (
+  <PerformanceCenter jobs={state.jobs} ctx={ctx} metrics={metrics} />
+)}
         {view === "Mobile Manager" && (
           <MobileManager jobs={state.jobs} ctx={ctx} reload={loadAll} />
         )}
@@ -367,18 +371,57 @@ function Dashboard({ jobs, ctx, metrics }) {
         </div>
       </div>
 
-      <div className="kpis">
-        <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Scheduled load" />
-        <Kpi title="Labor Sold" value={money(metrics.laborSold)} caption="All jobs" />
-        <Kpi title="Labor Produced" value={money(metrics.laborProduced)} caption="Completed jobs" />
-        <Kpi
-          title="Jobs In Progress"
-          value={jobs.filter((j) => ctx.status(j.status_id)?.name === "In Progress").length}
-          caption="Active now"
-        />
-        <Kpi title="Book Hours Complete" value={metrics.bookComplete.toFixed(1)} caption="Completed only" />
-        <Kpi title="Actual Hours Used" value={metrics.actualUsed.toFixed(1)} caption="Completed only" />
-      </div>
+     <div className="kpis">
+  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Scheduled load" />
+
+  <Kpi
+    title="Jobs Completed"
+    value={metrics.completedJobs}
+    caption="Completed jobs"
+  />
+
+  <Kpi
+    title="Jobs In Progress"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length}
+    caption="Currently working"
+  />
+
+  <Kpi
+    title="Waiting Jobs"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Waiting").length}
+    caption="Needs attention"
+  />
+
+  <Kpi
+    title="QC Queue"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length}
+    caption="Awaiting inspection"
+  />
+
+  <Kpi
+    title="Book Hours Complete"
+    value={metrics.bookComplete.toFixed(1)}
+    caption="Completed"
+  />
+
+  <Kpi
+    title="Actual Hours Used"
+    value={metrics.actualUsed.toFixed(1)}
+    caption="Completed"
+  />
+
+  <Kpi
+    title="Average Install Time"
+    value={`${metrics.avgActualTime.toFixed(2)} hrs`}
+    caption="Completed jobs"
+  />
+
+  <Kpi
+    title="Shop Efficiency"
+    value={`${Math.round(metrics.efficiency)}%`}
+    caption="Overall"
+  />
+</div>
 
       <div className="grid two">
         <Panel title="Live shop board" chip="Open jobs">
@@ -669,6 +712,278 @@ function Products({ ctx, reload }) {
     </section>
   );
 }
+
+function PerformanceCenter({ jobs, ctx, metrics }) {
+  const activeTechs = ctx.technicians.filter((t) => t.active);
+  const [selectedTechId, setSelectedTechId] = useState(activeTechs[0]?.id || "");
+
+  useEffect(() => {
+    if (!selectedTechId && activeTechs[0]?.id) setSelectedTechId(activeTechs[0].id);
+  }, [selectedTechId, activeTechs]);
+
+  const selectedTech = ctx.tech(selectedTechId) || activeTechs[0];
+  const shopRows = buildProductPerformanceRows(jobs, ctx, null);
+  const techRows = buildProductPerformanceRows(jobs, ctx, selectedTech?.id);
+
+  return (
+    <section className="page">
+      <div className="performanceHero">
+        <div>
+          <p className="eyebrow">Performance Platform</p>
+          <h3>Install times, efficiency, records, and shop averages</h3>
+          <p>No labor dollars. This page measures execution, consistency, QC, and improvement.</p>
+        </div>
+        <div className="performanceHeroStats">
+          <div>
+            <span>Shop Efficiency</span>
+            <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
+          </div>
+          <div>
+            <span>Avg Job Time</span>
+            <strong>{metrics.avgActualTime.toFixed(2)}h</strong>
+          </div>
+          <div>
+            <span>Completed</span>
+            <strong>{metrics.completedJobs}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid two">
+        <Panel title="Technician Dashboard" chip={selectedTech?.name || "Select"}>
+          <div className="techSelector">
+            <label>
+              Select Technician
+              <select value={selectedTech?.id || ""} onChange={(e) => setSelectedTechId(e.target.value)}>
+                {activeTechs.map((tech) => (
+                  <option value={tech.id} key={tech.id}>
+                    {tech.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
+        </Panel>
+
+        <Panel title="Shop Leaderboard" chip="Efficiency">
+          <TechLeaderboard jobs={jobs} ctx={ctx} detailed />
+        </Panel>
+      </div>
+
+      <Panel title="Average Job Times by Product" chip="Shop averages">
+        <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
+      </Panel>
+    </section>
+  );
+}
+
+function TechnicianDashboard({ technician, jobs, ctx, rows }) {
+  const stats = getTechStats(jobs, ctx, technician.id);
+  const records = rows
+    .filter((r) => r.jobs > 0 && r.bestTime !== null)
+    .sort((a, b) => a.bestTime - b.bestTime)
+    .slice(0, 5);
+
+  return (
+    <div className="techDashboard">
+      <div className="techHeaderCard">
+        <div className="techAvatarLarge">{technician.name.slice(0, 2)}</div>
+        <div>
+          <h2>{technician.name}</h2>
+          <p>{technician.role || "Technician"}</p>
+        </div>
+        <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+      </div>
+
+      <div className="techStatGrid">
+        <MiniStat label="Jobs Completed" value={stats.completedJobs} />
+        <MiniStat label="Book Hours" value={stats.bookHours.toFixed(1)} />
+        <MiniStat label="Actual Hours" value={stats.actualHours.toFixed(1)} />
+        <MiniStat label="Avg Job Time" value={`${stats.avgActual.toFixed(2)}h`} />
+        <MiniStat label="QC Pass Rate" value={`${Math.round(stats.qcPassRate)}%`} />
+        <MiniStat label="Goal" value={`${technician.efficiency_goal || 110}%`} />
+      </div>
+
+      <div className="recordsBox">
+        <h3>Personal Records</h3>
+        {records.length ? (
+          records.map((r) => (
+            <div className="recordRow" key={r.productId}>
+              <span>{r.productName}</span>
+              <strong>{r.bestTime.toFixed(2)}h</strong>
+            </div>
+          ))
+        ) : (
+          <p className="muted">No completed jobs with actual hours yet.</p>
+        )}
+      </div>
+
+      <h3 className="sectionTitle">Average Job Times</h3>
+      <PerformanceTable rows={rows} emptyText="This technician needs completed jobs with actual hours." compact />
+    </div>
+  );
+}
+
+function PerformanceTable({ rows, emptyText, compact = false }) {
+  const filtered = rows.filter((r) => r.jobs > 0);
+
+  if (!filtered.length) {
+    return <p className="muted">{emptyText}</p>;
+  }
+
+  return (
+    <div className={`performanceTable ${compact ? "compact" : ""}`}>
+      <div className="perfRow perfHeader">
+        <span>Product / Job</span>
+        <span>Book</span>
+        <span>Jobs</span>
+        <span>Tech Avg</span>
+        <span>Shop Avg</span>
+        <span>Vs Book</span>
+        <span>Vs Shop</span>
+        <span>Best</span>
+        <span>Last</span>
+      </div>
+
+      {filtered.map((row) => (
+        <div className="perfRow" key={row.productId}>
+          <strong>{row.productName}</strong>
+          <span>{row.bookHours.toFixed(2)}</span>
+          <span>{row.jobs}</span>
+          <span>{formatNullableHours(row.techAvg)}</span>
+          <span>{formatNullableHours(row.shopAvg)}</span>
+          <span className={deltaClass(row.vsBook)}>{formatSigned(row.vsBook)}</span>
+          <span className={deltaClass(row.vsShop)}>{formatSigned(row.vsShop)}</span>
+          <span>{formatNullableHours(row.bestTime)}</span>
+          <span>{formatNullableHours(row.lastActual)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div className="miniStat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+// 7) Replace TechLeaderboard() with this:
+function TechLeaderboard({ jobs, ctx, detailed = false }) {
+  const rows = ctx.technicians
+    .map((tech) => ({ tech, stats: getTechStats(jobs, ctx, tech.id) }))
+    .sort((a, b) => b.stats.efficiency - a.stats.efficiency);
+
+  return (
+    <div className="leaderList">
+      {rows.map(({ tech, stats }, index) => (
+        <div className="leader" key={tech.id}>
+          <div>
+            <b>
+              #{index + 1} {tech.name}
+            </b>
+            <span>
+              {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual
+              {detailed ? ` • ${stats.completedJobs} jobs • avg ${stats.avgActual.toFixed(2)}h` : ""}
+            </span>
+          </div>
+          <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 8) Add these helper functions near the bottom:
+function getTechStats(jobs, ctx, technicianId) {
+  const completed = jobs.filter(
+    (j) => j.technician_id === technicianId && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
+  );
+
+  const bookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const actualHours = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const qcPassed = completed.filter((j) => (j.qc || "").toLowerCase() === "yes").length;
+
+  return {
+    completedJobs: completed.length,
+    bookHours,
+    actualHours,
+    efficiency: actualHours ? (bookHours / actualHours) * 100 : 0,
+    avgActual: completed.length ? actualHours / completed.length : 0,
+    qcPassRate: completed.length ? (qcPassed / completed.length) * 100 : 0,
+  };
+}
+
+function buildProductPerformanceRows(jobs, ctx, technicianId = null) {
+  const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
+
+  return ctx.products.map((product) => {
+    const productJobs = completed.filter((j) => j.product_id === product.id);
+    const techJobs = technicianId ? productJobs.filter((j) => j.technician_id === technicianId) : productJobs;
+
+    const shopAvg = avg(productJobs.map((j) => Number(j.actual_hours)));
+    const techAvg = avg(techJobs.map((j) => Number(j.actual_hours)));
+    const bestTime = minOrNull(techJobs.map((j) => Number(j.actual_hours)));
+    const lastJob = [...techJobs].sort(
+      (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
+    )[0];
+
+    return {
+      productId: product.id,
+      productName: product.name,
+      bookHours: Number(product.book_hours || 0),
+      jobs: techJobs.length,
+      techAvg,
+      shopAvg,
+      vsBook: techAvg === null ? null : Number(product.book_hours || 0) - techAvg,
+      vsShop: techAvg === null || shopAvg === null ? null : shopAvg - techAvg,
+      bestTime,
+      lastActual: lastJob ? Number(lastJob.actual_hours) : null,
+    };
+  });
+}
+
+function avg(values) {
+  const clean = values.filter((v) => Number.isFinite(v) && v > 0);
+  if (!clean.length) return null;
+  return clean.reduce((a, b) => a + b, 0) / clean.length;
+}
+
+function minOrNull(values) {
+  const clean = values.filter((v) => Number.isFinite(v) && v > 0);
+  if (!clean.length) return null;
+  return Math.min(...clean);
+}
+
+function formatNullableHours(value) {
+  return value === null || value === undefined ? "—" : value.toFixed(2);
+}
+
+function formatSigned(value) {
+  if (value === null || value === undefined) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}`;
+}
+
+function deltaClass(value) {
+  if (value === null || value === undefined) return "";
+  return value >= 0 ? "good" : "bad";
+}
+
+// 9) In ProductionLog, remove the labor column and replace it with QC.
+// Header should end like:
+// <span>Eff.</span>
+// <span>QC</span>
+// <span></span>
+//
+// Row should end like:
+// <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
+// <span>{j.qc || "N/A"}</span>
+// <button onClick={() => deleteJob(j.id)}>Delete</button>
 
 function Admin({ ctx, reload }) {
   return (
@@ -1199,11 +1514,9 @@ async function fetchJobs(companyId) {
 }
 
 function calculateMetrics(jobs, ctx) {
-  const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && j.actual_hours);
+  const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
   const bookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
   const actualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
-  const laborSoldTotal = jobs.reduce((a, j) => a + ctx.laborSold(j), 0);
-  const laborProduced = completed.reduce((a, j) => a + ctx.laborSold(j), 0);
 
   return {
     capacity: Math.min(
@@ -1215,12 +1528,13 @@ function calculateMetrics(jobs, ctx) {
       )
     ),
     efficiency: actualUsed ? (bookComplete / actualUsed) * 100 : 0,
-    laborSold: laborSoldTotal,
-    laborProduced,
+    completedJobs: completed.length,
     bookComplete,
     actualUsed,
+    avgActualTime: completed.length ? actualUsed / completed.length : 0,
   };
 }
+
 
 function makeContext(state) {
   const product = (id) => state.products.find((p) => p.id === id);
