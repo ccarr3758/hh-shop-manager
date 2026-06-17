@@ -872,32 +872,6 @@ function MiniStat({ label, value }) {
   );
 }
 
-// 7) Replace TechLeaderboard() with this:
-function TechLeaderboard({ jobs, ctx, detailed = false }) {
-  const rows = ctx.technicians
-    .map((tech) => ({ tech, stats: getTechStats(jobs, ctx, tech.id) }))
-    .sort((a, b) => b.stats.efficiency - a.stats.efficiency);
-
-  return (
-    <div className="leaderList">
-      {rows.map(({ tech, stats }, index) => (
-        <div className="leader" key={tech.id}>
-          <div>
-            <b>
-              #{index + 1} {tech.name}
-            </b>
-            <span>
-              {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual
-              {detailed ? ` • ${stats.completedJobs} jobs • avg ${stats.avgActual.toFixed(2)}h` : ""}
-            </span>
-          </div>
-          <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // 8) Add these helper functions near the bottom:
 function getTechStats(jobs, ctx, technicianId) {
   const completed = jobs.filter(
@@ -1442,30 +1416,27 @@ function StatusPill({ status }) {
   );
 }
 
-function TechLeaderboard({ jobs, ctx }) {
+function TechLeaderboard({ jobs, ctx, detailed = false }) {
+  const rows = ctx.technicians
+    .map((tech) => ({ tech, stats: getTechStats(jobs, ctx, tech.id) }))
+    .sort((a, b) => b.stats.efficiency - a.stats.efficiency);
+
   return (
     <div className="leaderList">
-      {ctx.technicians.map((tech) => {
-        const completed = jobs.filter(
-          (j) => j.technician_id === tech.id && ctx.isComplete(j.status_id) && j.actual_hours
-        );
-
-        const book = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
-        const actual = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
-        const eff = actual ? (book / actual) * 100 : 0;
-
-        return (
-          <div className="leader" key={tech.id}>
-            <div>
-              <b>{tech.name}</b>
-              <span>
-                {book.toFixed(1)} book / {actual.toFixed(1)} actual
-              </span>
-            </div>
-            <strong className={effClass(eff)}>{Math.round(eff)}%</strong>
+      {rows.map(({ tech, stats }, index) => (
+        <div className="leader" key={tech.id}>
+          <div>
+            <b>
+              #{index + 1} {tech.name}
+            </b>
+            <span>
+              {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual
+              {detailed ? ` • ${stats.completedJobs} jobs • avg ${stats.avgActual.toFixed(2)}h` : ""}
+            </span>
           </div>
-        );
-      })}
+          <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
+        </div>
+      ))}
     </div>
   );
 }
