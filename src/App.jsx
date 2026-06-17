@@ -440,8 +440,9 @@ function Dashboard({ jobs, ctx, metrics }) {
       </div>
     </section>
   );
+  <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
 }
-<LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
+
 function Schedule({ jobs, ctx }) {
   const activeTechs = ctx.technicians.filter((t) => t.active);
   const times = buildTimeSlots(
