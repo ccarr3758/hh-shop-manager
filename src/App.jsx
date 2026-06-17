@@ -204,7 +204,7 @@ export default function App() {
           <MobileManager jobs={state.jobs} ctx={ctx} reload={loadAll} />
         )}
         {view === "Dashboard" && <Dashboard jobs={state.jobs} ctx={ctx} metrics={metrics} />}
-        {view === "Schedule" && <Schedule jobs={state.jobs} ctx={ctx} />}
+        {view === "" && < jobs={state.jobs} ctx={ctx} />}
         {view === "Foreman" && <Foreman jobs={state.jobs} ctx={ctx} reload={loadAll} />}
         {view === "Production Log" && <ProductionLog jobs={state.jobs} ctx={ctx} reload={loadAll} />}
         {view === "Technicians" && <Technicians jobs={state.jobs} ctx={ctx} />}
@@ -278,7 +278,7 @@ function MobileManager({ jobs, ctx, reload }) {
       </header>
 
       <div className="mobileTabs">
-        {["Open", "Scheduled", "In Progress", "Waiting", "QC"].map((x) => (
+        {["Open", "d", "In Progress", "Waiting", "QC"].map((x) => (
           <button
             key={x}
             className={filter === x ? "active" : ""}
@@ -373,7 +373,7 @@ function Dashboard({ jobs, ctx, metrics }) {
       </div>
 
      <div className="kpis">
-  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Scheduled load" />
+  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="d load" />
 
   <Kpi
     title="Jobs Completed"
@@ -450,14 +450,39 @@ function Schedule({ jobs, ctx }) {
     ctx.shopSettings?.shop_close || "18:00"
   );
 
+  function timeToMinutes(value) {
+    const [h, m] = shortTime(value).split(":").map(Number);
+    return h * 60 + m;
+  }
+
+  function jobCoversSlot(job, slotTime) {
+    if (!job.start_time || !job.book_hours) return false;
+
+    const slotStart = timeToMinutes(slotTime);
+    const jobStart = timeToMinutes(job.start_time);
+    const jobEnd = jobStart + Number(job.book_hours) * 60;
+
+    return slotStart >= jobStart && slotStart < jobEnd;
+  }
+
+  function isJobStart(job, slotTime) {
+    return shortTime(job.start_time) === slotTime;
+  }
+
   return (
     <section className="page">
       <Panel title="Technician schedule" chip="Today">
         <div
           className="schedule"
-          style={{ gridTemplateColumns: `86px repeat(${Math.max(activeTechs.length, 1)}, minmax(150px, 1fr))` }}
+          style={{
+            gridTemplateColumns: `86px repeat(${Math.max(
+              activeTechs.length,
+              1
+            )}, minmax(150px, 1fr))`,
+          }}
         >
           <div className="scheduleHead empty" />
+
           {activeTechs.map((tech) => (
             <div className="scheduleHead" key={tech.id}>
               {tech.name}
@@ -467,24 +492,56 @@ function Schedule({ jobs, ctx }) {
           {times.map((time) => (
             <React.Fragment key={time}>
               <div className="timeCell">{formatTime(time)}</div>
+
               {activeTechs.map((tech) => {
-                const slotJobs = jobs.filter(
-                  (j) => j.technician_id === tech.id && shortTime(j.start_time) === time
+                const coveringJobs = jobs.filter(
+                  (j) =>
+                    j.technician_id === tech.id &&
+                    !ctx.isComplete(j.status_id) &&
+                    jobCoversSlot(j, time)
                 );
 
                 return (
-                  <div className="slot" key={`${tech.id}-${time}`}>
-                    {slotJobs.map((j) => (
-                      <div
-                        className="miniJob"
-                        style={{ borderColor: ctx.category(ctx.product(j.product_id)?.category_id)?.color }}
-                        key={j.id}
-                      >
-                        {ctx.product(j.product_id)?.name}
-                        <br />
-                        <b>{j.vehicle}</b>
-                      </div>
-                    ))}
+                  <div
+                    className={`slot ${
+                      coveringJobs.length ? "slotBlocked" : ""
+                    }`}
+                    key={`${tech.id}-${time}`}
+                  >
+                    {coveringJobs.map((j) => {
+                      const product = ctx.product(j.product_id);
+                      const category = ctx.category(product?.category_id);
+                      const status = ctx.status(j.status_id);
+
+                      return (
+                        <div
+                          className={`miniJob ${
+                            isJobStart(j, time)
+                              ? "miniJobStart"
+                              : "miniJobContinued"
+                          }`}
+                          style={{
+                            borderColor: category?.color || "#f97316",
+                          }}
+                          key={`${j.id}-${time}`}
+                        >
+                          {isJobStart(j, time) ? (
+                            <>
+                              <strong>{product?.name}</strong>
+                              <br />
+                              <span>{j.vehicle}</span>
+                              <br />
+                              <small>
+                                {shortTime(j.start_time)} • {j.book_hours} hrs •{" "}
+                                {status?.name}
+                              </small>
+                            </>
+                          ) : (
+                            <small>continued</small>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
