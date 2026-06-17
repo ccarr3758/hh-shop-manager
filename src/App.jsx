@@ -32,7 +32,7 @@ const nav = [
 ];
 
 export default function App() {
-  const [view, setView] = useState("Mobile Manager");
+  const [view, setView] = useState("Dashboard");
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [state, setState] = useState(emptyState());
