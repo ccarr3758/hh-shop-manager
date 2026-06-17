@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ClipboardList,
   Database,
+  Edit3,
   LayoutDashboard,
   Plus,
   RefreshCw,
