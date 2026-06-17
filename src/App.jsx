@@ -8,10 +8,12 @@ import {
   LayoutDashboard,
   Plus,
   RefreshCw,
+  Save,
   Settings,
   Smartphone,
   UserCheck,
-  Wrench
+  Wrench,
+  X,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
