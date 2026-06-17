@@ -408,3 +408,23 @@ button:not(.primary):not(.sidebarButton) {
 .availabilityRow strong {
   font-weight: 950;
 }
+.slotBlocked {
+  background: #fff7ed;
+}
+
+.miniJobContinued {
+  opacity: 0.55;
+  background: #ffedd5;
+  border-style: dashed;
+  text-align: center;
+}
+
+.miniJobStart {
+  background: #fff7ed;
+  font-weight: 800;
+}
+
+.miniJob small {
+  color: #64748b;
+  font-weight: 800;
+}
