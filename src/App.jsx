@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
-  CalendarDays,
+  CalendarDay,
   ClipboardList,
   Database,
   Edit3,
