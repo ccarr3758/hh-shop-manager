@@ -365,3 +365,46 @@ button:not(.primary):not(.sidebarButton) {
     grid-template-columns: 1fr;
   }
 }
+.availabilityTable {
+  display: grid;
+  gap: 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.availabilityRow {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr 1fr 1fr 1.4fr;
+  gap: 12px;
+  align-items: center;
+  min-width: 860px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.availabilityRow:last-child {
+  border-bottom: 0;
+}
+
+.availabilityHeader {
+  background: #1f4e79;
+  color: white;
+  font-weight: 900;
+  text-align: center;
+}
+
+.availabilityBusy {
+  background: #dbeafe;
+  color: #17324d;
+}
+
+.availabilityAvailable {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.availabilityRow strong {
+  font-weight: 950;
+}
