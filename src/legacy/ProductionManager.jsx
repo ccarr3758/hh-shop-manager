@@ -31,15 +31,15 @@ const nav = [
   ["Cloud Status", Database],
 ];
 
-export default function ProductionManager() {
-  const [view, setView] = useState("Mobile Manager");
+export default function ProductionManager({ authProfile, onSignOut }) {
+  const [view, setView] = useState("Dashboard");
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [state, setState] = useState(emptyState());
   const [loading, setLoading] = useState(true);
   const [cloudError, setCloudError] = useState("");
   const [selectedDate, setSelectedDate] = useState(todayIso());
-  const [access, setAccess] = useState(() => loadAccess());
+  const access = useMemo(() => makeAccessFromProfile(authProfile), [authProfile]);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
   );
@@ -60,7 +60,7 @@ export default function ProductionManager() {
         throw new Error("Supabase environment variables are missing.");
       }
 
-      const company = await getCompany();
+      const company = await getCompany(authProfile);
       const companyId = company.id;
 
       let [
@@ -186,7 +186,7 @@ export default function ProductionManager() {
   }
 
   if (!access) {
-    return <AccessGate technicians={state.technicians} onSave={setAccess} />;
+    return <div className="errorScreen"><div className="panel errorPanel"><h1>No access profile</h1><p>This user does not have an active role assigned.</p></div></div>;
   }
 
   return (
@@ -216,9 +216,10 @@ export default function ProductionManager() {
         </nav>
 
         <div className="sideCard">
-          <small>Cloud connected</small>
-          <strong>{state.company?.name || "H&H"}</strong>
-          <p>Jobs, techs, products, and admin settings load from Supabase.</p>
+          <small>Signed in as</small>
+          <strong>{authProfile?.full_name || authProfile?.email || "Shop User"}</strong>
+          <p>{state.company?.name || "H&H"} • {String(access?.role || "").replace("_", " ")}</p>
+          <button onClick={onSignOut}>Sign Out</button>
         </div>
       </aside>
       )}
@@ -231,9 +232,14 @@ export default function ProductionManager() {
               <h2>{view}</h2>
               <input className="phoneDatePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
             </div>
-            <button className="phoneIconButton" onClick={loadAll} aria-label="Refresh">
-              <RefreshCw size={20} />
-            </button>
+            <div style={{ display: "grid", gap: 8 }}>
+              <button className="phoneIconButton" onClick={loadAll} aria-label="Refresh">
+                <RefreshCw size={20} />
+              </button>
+              <button className="phoneIconButton" onClick={onSignOut} aria-label="Sign out" style={{ fontSize: 11, fontWeight: 900 }}>
+                Out
+              </button>
+            </div>
           </header>
         ) : (
           <header className="topbar">
@@ -246,6 +252,7 @@ export default function ProductionManager() {
               <button onClick={loadAll}>
                 <RefreshCw size={17} /> Refresh
               </button>
+              <button onClick={onSignOut}>Sign Out</button>
               <button className="primary" onClick={() => setShowNewJob(true)}>
                 <Plus size={18} /> New Job
               </button>
@@ -3303,32 +3310,40 @@ async function rollForwardOverdueJobs(companyId, jobs, statuses) {
   return data || jobs;
 }
 
-function loadAccess() {
-  if (typeof window === "undefined") return null;
-  try {
-    return JSON.parse(window.localStorage.getItem("hhpm_access") || "null");
-  } catch {
-    return null;
-  }
+function makeAccessFromProfile(profile) {
+  if (!profile) return null;
+  const role = normalizeRole(profile.role);
+  return {
+    role,
+    technicianId: profile.technician_id || "",
+    companyId: profile.company_id || profile.companies?.id || "",
+    fullName: profile.full_name || "",
+    email: profile.email || "",
+  };
 }
 
-function saveAccess(access) {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem("hhpm_access", JSON.stringify(access));
-  }
-  return access;
+function normalizeRole(role) {
+  const value = String(role || "technician").toLowerCase();
+  if (value === "tech") return "technician";
+  if (["admin", "manager", "foreman", "service_writer", "technician"].includes(value)) return value;
+  return "technician";
 }
 
 function getAllowedViewNames(access) {
-  const role = access?.role || "manager";
-  if (role === "tech") return ["Mobile Manager", "Schedule"];
-  if (role === "foreman") return ["Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log"];
-  if (role === "manager") return ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Cloud Status"];
-  return nav.map(([name]) => name);
+  const role = normalizeRole(access?.role);
+  const map = {
+    admin: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Admin", "Cloud Status"],
+    manager: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Cloud Status"],
+    foreman: ["Mobile Manager", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
+    service_writer: ["Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
+    technician: ["Mobile Manager", "Dashboard"],
+  };
+  return map[role] || map.technician;
 }
 
 function filterJobsForAccess(jobs, access) {
-  if (access?.role === "tech" && access?.technicianId) {
+  const role = normalizeRole(access?.role);
+  if (role === "technician" && access?.technicianId) {
     return jobs.filter((job) => job.technician_id === access.technicianId);
   }
   return jobs;
