@@ -573,6 +573,9 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       technician_id: helperTechnicianId,
       start_time: helperStartTime,
       book_hours: helperBookHours,
+      status: "active",
+      end_time: null,
+      ended_at: null,
       scheduled_date: job.scheduled_date || selectedDate || todayIso(),
       notes: `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}`,
       updated_at: new Date().toISOString(),
@@ -587,10 +590,30 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
     await reload();
   }
 
+  async function endHelperOnJob(helper, job) {
+    const endTime = shortTime(new Date().toTimeString());
+    const creditedHours = calculateHelperCreditedHours(job, helper.start_time, endTime, ctx);
+
+    const { error } = await supabase
+      .from("job_helpers")
+      .update({
+        end_time: endTime,
+        book_hours: creditedHours,
+        status: "ended",
+        ended_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", helper.id);
+
+    if (error) return alert(error.message);
+    notifyUser(`${ctx.tech(helper.technician_id)?.name || "Helper"} ended help with ${creditedHours} credited hrs`);
+    await reload();
+  }
+
   async function removeHelperFromJob(helperId) {
     const { error } = await supabase.from("job_helpers").delete().eq("id", helperId);
     if (error) return alert(error.message);
-    notifyUser("Helper removed");
+    notifyUser("Helper removed with no credited hours");
     await reload();
   }
 
@@ -679,6 +702,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
                 job={job}
                 ctx={ctx}
                 onAddHelper={addHelperToJob}
+                onEndHelper={endHelperOnJob}
                 onRemoveHelper={removeHelperFromJob}
               />
             </article>
@@ -912,10 +936,34 @@ function getHelpersForJob(job, ctx) {
   return (ctx.jobHelpers || []).filter((h) => h.job_id === job?.id);
 }
 
+function isActiveHelper(helper) {
+  return (helper?.status || "active") === "active" && !helper?.end_time;
+}
+
 function getHelperAssignmentForTech(techId, ctx, selectedDate) {
   return (ctx.jobHelpers || []).find(
-    (h) => h.technician_id === techId && h.scheduled_date === selectedDate
+    (h) => h.technician_id === techId && h.scheduled_date === selectedDate && isActiveHelper(h)
   );
+}
+
+function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
+  if (!job || !helperStartTime || !helperEndTime) return 0;
+
+  const projected = getJobProjectedFinish(job, ctx);
+  const schedule = getShopSchedule(ctx);
+  const start = timeStringToMinutes(helperStartTime);
+  const requestedEnd = timeStringToMinutes(helperEndTime);
+  const jobFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
+  const end = Math.min(requestedEnd, jobFinish, schedule.close);
+
+  if (end <= start) return 0;
+
+  let minutes = 0;
+  for (let minute = start; minute < end; minute += 1) {
+    if (isWorkingMinute(minute, schedule)) minutes += 1;
+  }
+
+  return roundHours(minutes / 60);
 }
 
 function calculateHelperBookHours(job, helperStartTime, ctx) {
@@ -923,15 +971,14 @@ function calculateHelperBookHours(job, helperStartTime, ctx) {
 
   const projected = getJobProjectedFinish(job, ctx);
   const schedule = getShopSchedule(ctx);
-  const start = timeStringToMinutes(helperStartTime);
-  const end = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
-  let minutes = 0;
+  const helperEndTime = projected.dayOffset > 0 ? minutesToTime(schedule.close) : projected.finishTime;
+  return calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx);
+}
 
-  for (let minute = start; minute < end; minute += 1) {
-    if (isWorkingMinute(minute, schedule)) minutes += 1;
-  }
-
-  return roundHours(minutes / 60);
+function getHelperDisplayHours(helper, job, ctx) {
+  if (!helper) return 0;
+  if (!isActiveHelper(helper)) return Number(helper.book_hours || 0);
+  return calculateHelperBookHours(job, helper.start_time, ctx);
 }
 
 function buildHelperScheduleJobs(jobs, ctx, selectedDate) {
@@ -945,7 +992,7 @@ function buildHelperScheduleJobs(jobs, ctx, selectedDate) {
         id: `helper-${helper.id}`,
         technician_id: helper.technician_id,
         start_time: shortTime(helper.start_time),
-        book_hours: Number(helper.book_hours || 0),
+        book_hours: isActiveHelper(helper) ? calculateHelperBookHours(primaryJob, helper.start_time, ctx) : Number(helper.book_hours || 0),
         helper_assignment: helper,
         helper_label: `Assisting ${getPrimaryTechNameForJob(primaryJob, ctx)}`,
       };
@@ -1076,7 +1123,7 @@ function Schedule({ jobs, ctx, selectedDate }) {
 }
 
 
-function HelperControls({ job, ctx, onAddHelper, onRemoveHelper }) {
+function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) {
   const [helperTechnicianId, setHelperTechnicianId] = useState("");
   const [helperStartTime, setHelperStartTime] = useState(shortTime(new Date().toTimeString()));
   const helpers = getHelpersForJob(job, ctx);
@@ -1096,12 +1143,22 @@ function HelperControls({ job, ctx, onAddHelper, onRemoveHelper }) {
         <input type="time" value={helperStartTime} onChange={(e) => setHelperStartTime(e.target.value)} />
         <button onClick={() => onAddHelper(job, helperTechnicianId, helperStartTime)}>Add Helper</button>
       </div>
-      {helpers.map((helper) => (
-        <div className="helperLine" key={helper.id}>
-          <span>{ctx.tech(helper.technician_id)?.name || "Helper"} • {shortTime(helper.start_time)} • {helper.book_hours} hrs</span>
-          <button onClick={() => onRemoveHelper(helper.id)}>Remove</button>
-        </div>
-      ))}
+      {helpers.map((helper) => {
+        const active = isActiveHelper(helper);
+        const displayHours = getHelperDisplayHours(helper, job, ctx);
+        return (
+          <div className="helperLine" key={helper.id}>
+            <span>
+              {ctx.tech(helper.technician_id)?.name || "Helper"} • {shortTime(helper.start_time)}
+              {active ? " → Active" : ` → ${shortTime(helper.end_time)}`} • {displayHours} hrs
+            </span>
+            <div className="helperActions">
+              {active && <button onClick={() => onEndHelper(helper, job)}>End Help</button>}
+              <button onClick={() => onRemoveHelper(helper.id)}>Remove</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

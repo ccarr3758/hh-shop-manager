@@ -65,3 +65,12 @@ using (
     select company_id from user_profiles where id = auth.uid() and active = true
   )
 );
+
+-- Helper lifecycle columns added after initial helper support.
+-- End Help freezes credited hours. Remove deletes the row and credits nothing.
+alter table job_helpers
+add column if not exists end_time time null,
+add column if not exists status text not null default 'active',
+add column if not exists ended_at timestamptz null;
+
+create index if not exists idx_job_helpers_active_status on job_helpers(status, scheduled_date);

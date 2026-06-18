@@ -482,3 +482,14 @@ button:not(.primary):not(.sidebarButton) {
     grid-template-columns: 1fr;
   }
 }
+
+.helperActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.helperActions button:first-child {
+  font-weight: 700;
+}
