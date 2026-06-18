@@ -26,6 +26,7 @@ const nav = [
   ["Foreman", Smartphone],
   ["Production Log", ClipboardList],
   ["Technicians", UserCheck],
+  ["Tech Clock", UserCheck],
   ["Products", Wrench],
   ["Admin", Settings],
   ["Cloud Status", Database],
@@ -74,6 +75,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         jobs,
         jobProducts,
         jobHelpersResult,
+        technicianAttendanceResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -85,6 +87,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchJobs(companyId),
         fetchTable("job_products", companyId),
         fetchOptionalJobHelpers(companyId),
+        fetchOptionalTechnicianAttendance(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -99,6 +102,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         products,
         jobProducts,
         jobHelpers: jobHelpersResult || [],
+        technicianAttendance: technicianAttendanceResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -149,6 +153,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         { event: "*", schema: "public", table: "job_helpers", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "technician_attendance", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
       .subscribe();
 
     return () => {
@@ -160,7 +169,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
   const visibleJobs = useMemo(() => filterJobsForAccess(state.jobs, access), [state.jobs, access]);
   const dailyJobs = useMemo(() => jobsForDate(visibleJobs, selectedDate), [visibleJobs, selectedDate]);
-  const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx), [dailyJobs, ctx]);
+  const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx, selectedDate), [dailyJobs, ctx, selectedDate]);
 
   useEffect(() => {
     if (!allowedViewNames.includes(view)) setView(allowedViewNames[0] || "Mobile Manager");
@@ -280,6 +289,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
         {view === "Production Log" && <ProductionLog jobs={visibleJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} />}
         {view === "Technicians" && <Technicians jobs={visibleJobs} ctx={ctx} />}
+        {view === "Tech Clock" && <TechnicianClock ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
         {view === "Products" && <Products ctx={ctx} reload={loadAll} />}
         {view === "Admin" && <Admin ctx={ctx} reload={loadAll} />}
         {view === "Cloud Status" && <CloudStatus state={state} />}
@@ -306,6 +316,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                 ["Schedule", CalendarDays, "Schedule"],
                 ["Outlook Calendar", CalendarDays, "Outlook"],
                 ["Production Log", ClipboardList, "Log"],
+                ["Tech Clock", UserCheck, "Clock"],
                 ["Admin", Settings, "Admin"],
               ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
                 <button
@@ -381,6 +392,16 @@ function MobileStyles() {
       .availabilityOverdue { background: #fee2e2 !important; border-color: #ef4444 !important; color: #7f1d1d !important; }
       .availabilityOverdue strong, .availabilityOverdue span { color: #7f1d1d !important; }
       .negativeTime { font-weight: 900; color: #dc2626 !important; }
+      .availabilityOffClock { background: #f1f5f9 !important; border-color: #94a3b8 !important; color: #64748b !important; }
+      .availabilityOffClock strong, .availabilityOffClock span { color: #64748b !important; }
+      .techClockList { display: grid; gap: 10px; }
+      .techClockRow { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(180px, 1fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid rgba(15,23,42,.1); border-radius: 16px; background: #f8fafc; }
+      .techClockRow.clockedIn { border-color: rgba(22,163,74,.35); background: #f0fdf4; }
+      .techClockRow.clockedOut { border-color: rgba(100,116,139,.25); background: #f8fafc; }
+      .techClockRow strong { display: block; color: #0f172a; }
+      .techClockRow span { display: block; margin-top: 2px; color: #64748b; font-size: 12px; font-weight: 800; }
+      .techClockRow b { color: #0f172a; }
+      .techClockActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       @media (max-width: 768px) {
         html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; }
         body { background: #070d1c; }
@@ -1261,6 +1282,109 @@ function Technicians({ jobs, ctx }) {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function TechnicianClock({ ctx, reload, selectedDate }) {
+  const isToday = selectedDate === todayIso();
+
+  async function clockIn(tech) {
+    const now = new Date().toISOString();
+    const payload = {
+      company_id: ctx.company.id,
+      technician_id: tech.id,
+      work_date: selectedDate,
+      clock_in_at: isToday ? now : `${selectedDate}T08:00:00`,
+      clock_out_at: null,
+      status: "clocked_in",
+      updated_at: now,
+    };
+
+    const { error } = await supabase
+      .from("technician_attendance")
+      .upsert(payload, { onConflict: "company_id,technician_id,work_date" });
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
+  async function clockOut(tech) {
+    const now = new Date().toISOString();
+    const row = ctx.attendanceForDate?.(tech.id, selectedDate);
+
+    if (!row?.id) {
+      return alert(`${tech.name} is not clocked in for ${selectedDate}.`);
+    }
+
+    const { error } = await supabase
+      .from("technician_attendance")
+      .update({
+        clock_out_at: isToday ? now : `${selectedDate}T18:00:00`,
+        status: "clocked_out",
+        updated_at: now,
+      })
+      .eq("id", row.id);
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
+  async function markAbsent(tech) {
+    const now = new Date().toISOString();
+    const payload = {
+      company_id: ctx.company.id,
+      technician_id: tech.id,
+      work_date: selectedDate,
+      clock_in_at: null,
+      clock_out_at: null,
+      status: "absent",
+      updated_at: now,
+    };
+
+    const { error } = await supabase
+      .from("technician_attendance")
+      .upsert(payload, { onConflict: "company_id,technician_id,work_date" });
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
+  return (
+    <section className="page">
+      <div className="adminHero">
+        <p className="eyebrow">Manager / Admin</p>
+        <h3>Technician Clock</h3>
+        <p>Clock technicians in for the day. A technician who is not clocked in shows as not available and is excluded from shop capacity.</p>
+      </div>
+
+      <Panel title="Technician Availability Control" chip={selectedDate}>
+        <div className="techClockList">
+          {ctx.technicians.filter((t) => t.active).map((tech) => {
+            const attendance = getTechAttendanceStatus(ctx, tech.id, selectedDate);
+            const clockedIn = attendance.label === "Clocked In";
+            const row = attendance.row;
+
+            return (
+              <div className={`techClockRow ${clockedIn ? "clockedIn" : "clockedOut"}`} key={tech.id}>
+                <div>
+                  <strong>{tech.name}</strong>
+                  <span>{tech.role || "Technician"}</span>
+                </div>
+                <div>
+                  <b>{attendance.label}</b>
+                  <span>In: {formatClock(row?.clock_in_at)} • Out: {formatClock(row?.clock_out_at)}</span>
+                </div>
+                <div className="techClockActions">
+                  <button className="primary" onClick={() => clockIn(tech)}>Clock In</button>
+                  <button onClick={() => clockOut(tech)}>Clock Out</button>
+                  <button onClick={() => markAbsent(tech)}>Absent</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
     </section>
   );
 }
@@ -2878,6 +3002,21 @@ async function fetchOptionalJobHelpers(companyId) {
   return data || [];
 }
 
+async function fetchOptionalTechnicianAttendance(companyId) {
+  const { data, error } = await supabase
+    .from("technician_attendance")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("work_date", { ascending: false });
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("technician_attendance")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
 async function fetchJobs(companyId) {
   const { data, error } = await supabase
     .from("jobs")
@@ -2889,17 +3028,19 @@ async function fetchJobs(companyId) {
   return data || [];
 }
 
-function calculateMetrics(jobs, ctx) {
+function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
   const bookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
   const actualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const clockedInTechs = getClockedInTechnicians(ctx, selectedDate);
+  const availableTechCount = clockedInTechs.length || 1;
 
   return {
     capacity: Math.min(
       100,
       Math.round(
         (jobs.reduce((a, j) => a + Number(j.book_hours || 0), 0) /
-          (ctx.technicians.filter((t) => t.active).length * 8 || 1)) *
+          (availableTechCount * 8 || 1)) *
           100
       )
     ),
@@ -2948,6 +3089,12 @@ function makeContext(state) {
     return Number(job.book_hours || 0) * Number(rate?.amount || 0);
   };
 
+  const attendanceForDate = (technicianId, date = todayIso()) => (state.technicianAttendance || []).find((row) => row.technician_id === technicianId && row.work_date === date);
+  const isTechClockedIn = (technicianId, date = todayIso()) => {
+    const row = attendanceForDate(technicianId, date);
+    return Boolean(row?.clock_in_at && !row?.clock_out_at);
+  };
+
   return {
     ...state,
     product,
@@ -2959,7 +3106,10 @@ function makeContext(state) {
     jobProductsSummary,
     isComplete,
     laborSold,
+    attendanceForDate,
+    isTechClockedIn,
     jobHelpers: state.jobHelpers || [],
+    technicianAttendance: state.technicianAttendance || [],
   };
 }
 
@@ -2974,9 +3124,28 @@ function emptyState() {
     products: [],
     jobProducts: [],
     jobHelpers: [],
+    technicianAttendance: [],
     shopSettings: null,
     jobs: [],
   };
+}
+
+function getClockedInTechnicians(ctx, selectedDate = todayIso()) {
+  return (ctx.technicians || []).filter((tech) => tech.active && ctx.isTechClockedIn?.(tech.id, selectedDate));
+}
+
+function getTechAttendanceStatus(ctx, technicianId, selectedDate = todayIso()) {
+  const row = ctx.attendanceForDate?.(technicianId, selectedDate);
+  if (row?.clock_in_at && !row?.clock_out_at) return { label: "Clocked In", row };
+  if (row?.clock_in_at && row?.clock_out_at) return { label: "Clocked Out", row };
+  return { label: "Not Clocked In", row: null };
+}
+
+function formatClock(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return shortTime(value);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function buildTimeSlots(open, close) {
@@ -3635,8 +3804,8 @@ function normalizeRole(role) {
 function getAllowedViewNames(access) {
   const role = normalizeRole(access?.role);
   const map = {
-    admin: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Admin", "Cloud Status"],
-    manager: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Products", "Cloud Status"],
+    admin: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"],
+    manager: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Cloud Status"],
     foreman: ["Mobile Manager", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
     service_writer: ["Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
     technician: ["Mobile Manager", "Dashboard"],
@@ -3809,34 +3978,40 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
         {ctx.technicians
           .filter((t) => t.active)
           .map((tech) => {
-            const currentJob = getTechCurrentJob(tech.id);
+            const clockedIn = ctx.isTechClockedIn?.(tech.id, todayIso());
+            const attendanceStatus = getTechAttendanceStatus(ctx, tech.id, todayIso());
+            const currentJob = clockedIn ? getTechCurrentJob(tech.id) : null;
             const finish = getProjectedFinish(currentJob);
             const overdue = isOverdue(finish, Boolean(currentJob));
-            const nextJob = getNextJob(tech.id, currentJob?.id);
-            const status = currentJob
-              ? overdue
-                ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
-                : ctx.status(currentJob.status_id)?.name
-              : "Available";
-            const product = currentJob ? currentJob.helper_label || ctx.jobProductsSummary(currentJob) : "Available";
+            const nextJob = clockedIn ? getNextJob(tech.id, currentJob?.id) : null;
+            const status = !clockedIn
+              ? attendanceStatus.label
+              : currentJob
+                ? overdue
+                  ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
+                  : ctx.status(currentJob.status_id)?.name
+                : "Available";
+            const product = !clockedIn ? "Not Available" : currentJob ? currentJob.helper_label || ctx.jobProductsSummary(currentJob) : "Available";
             const nextProduct = nextJob ? ctx.jobProductsSummary(nextJob) : "—";
 
             return (
               <div
                 className={`availabilityRow ${
-                  overdue
-                    ? "availabilityOverdue"
-                    : currentJob
-                      ? "availabilityBusy"
-                      : "availabilityAvailable"
+                  !clockedIn
+                    ? "availabilityOffClock"
+                    : overdue
+                      ? "availabilityOverdue"
+                      : currentJob
+                        ? "availabilityBusy"
+                        : "availabilityAvailable"
                 }`}
                 key={tech.id}
               >
                 <strong>{tech.name}</strong>
                 <span>{product}</span>
                 <span>{status}</span>
-                <span className={overdue ? "negativeTime" : ""}>{getTimeRemaining(finish, Boolean(currentJob))}</span>
-                <span>{formatAvailableAt(finish, Boolean(currentJob))}</span>
+                <span className={overdue ? "negativeTime" : ""}>{clockedIn ? getTimeRemaining(finish, Boolean(currentJob)) : "—"}</span>
+                <span>{clockedIn ? formatAvailableAt(finish, Boolean(currentJob)) : "Not clocked in"}</span>
                 <span>{nextProduct}</span>
               </div>
             );
