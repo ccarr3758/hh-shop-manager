@@ -613,22 +613,37 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
 
   async function addHelperToJob(job, helperTechnicianId, helperStartTime) {
     if (!helperTechnicianId) return alert("Select a helper technician.");
-    if (!helperStartTime) return alert("Enter helper start time.");
     if (helperTechnicianId === job.technician_id) return alert("Helper cannot be the lead technician on the same job.");
 
-    const helperBookHours = calculateHelperBookHours(job, helperStartTime, ctx);
+    const scheduledDate = job.scheduled_date || selectedDate || todayIso();
+    const activeExistingHelper = (ctx.jobHelpers || []).find(
+      (h) =>
+        h.job_id === job.id &&
+        h.technician_id === helperTechnicianId &&
+        h.scheduled_date === scheduledDate &&
+        isActiveHelper(h)
+    );
+
+    if (activeExistingHelper) {
+      return alert(`${ctx.tech(helperTechnicianId)?.name || "Helper"} is already actively helping on this job. End the active helper session before starting another one.`);
+    }
+
+    // If the time picker is blank, start the helper session right now.
+    // This prevents a re-added helper from reusing an old on-screen timestamp.
+    const effectiveHelperStartTime = helperStartTime || shortTime(new Date().toTimeString());
+    const helperBookHours = calculateHelperBookHours(job, effectiveHelperStartTime, ctx);
     const overBook = isJobPastBookTime(job, ctx);
 
     const helperRow = {
       company_id: ctx.company.id,
       job_id: job.id,
       technician_id: helperTechnicianId,
-      start_time: helperStartTime,
+      start_time: effectiveHelperStartTime,
       book_hours: helperBookHours,
       status: "active",
       end_time: null,
       ended_at: null,
-      scheduled_date: job.scheduled_date || selectedDate || todayIso(),
+      scheduled_date: scheduledDate,
       actual_hours: null,
       notes: overBook
         ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 100% actual time for core efficiency. A separate helper curve bonus is applied in performance reports.`
@@ -636,9 +651,12 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
       updated_at: new Date().toISOString(),
     };
 
+    // Insert a new row for every helper session. Do not upsert.
+    // Re-adding a helper later in the day must create a fresh session so availability
+    // and overdue timers do not reuse the original helper timestamp.
     const { error } = await supabase
       .from("job_helpers")
-      .upsert(helperRow, { onConflict: "job_id,technician_id,scheduled_date" });
+      .insert(helperRow);
 
     if (error) return alert(error.message);
     await logAuditEvent(ctx, access, {
@@ -1044,9 +1062,13 @@ function isActiveHelper(helper) {
 }
 
 function getHelperAssignmentForTech(techId, ctx, selectedDate) {
-  return (ctx.jobHelpers || []).find(
-    (h) => h.technician_id === techId && h.scheduled_date === selectedDate && isActiveHelper(h)
-  );
+  return (ctx.jobHelpers || [])
+    .filter((h) => h.technician_id === techId && h.scheduled_date === selectedDate && isActiveHelper(h))
+    .sort((a, b) => {
+      const aStamp = a.created_at || `${a.scheduled_date || ""}T${shortTime(a.start_time || "00:00")}`;
+      const bStamp = b.created_at || `${b.scheduled_date || ""}T${shortTime(b.start_time || "00:00")}`;
+      return String(bStamp).localeCompare(String(aStamp));
+    })[0] || null;
 }
 
 function calculateWorkingHoursBetween(startTime, endTime, ctx) {
@@ -1289,8 +1311,14 @@ function Schedule({ jobs, ctx, selectedDate }) {
 
 function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) {
   const [helperTechnicianId, setHelperTechnicianId] = useState("");
-  const [helperStartTime, setHelperStartTime] = useState(shortTime(new Date().toTimeString()));
+  const [helperStartTime, setHelperStartTime] = useState("");
   const helpers = getHelpersForJob(job, ctx);
+
+  async function handleAddHelper() {
+    await onAddHelper(job, helperTechnicianId, helperStartTime || shortTime(new Date().toTimeString()));
+    setHelperTechnicianId("");
+    setHelperStartTime("");
+  }
 
   return (
     <div className="helperBox">
@@ -1305,7 +1333,7 @@ function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) 
             ))}
         </select>
         <input type="time" value={helperStartTime} onChange={(e) => setHelperStartTime(e.target.value)} />
-        <button onClick={() => onAddHelper(job, helperTechnicianId, helperStartTime)}>Add Helper</button>
+        <button onClick={handleAddHelper}>Add Helper Now</button>
       </div>
       {helpers.map((helper) => {
         const active = isActiveHelper(helper);
