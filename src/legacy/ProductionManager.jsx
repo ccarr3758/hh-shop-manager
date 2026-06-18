@@ -672,7 +672,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
               <div className="mobileMetaGrid">
                 <div>
                   <span>Start</span>
-                  <strong>{shortTime(job.start_time)}</strong>
+                  <strong>{getEffectiveJobStartLabel(job)}</strong>
                 </div>
                 <div>
                   <span>Book</span>
@@ -680,7 +680,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
                 </div>
                 <div>
                   <span>Finish</span>
-                  <strong>{projected.finishTime}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""}</strong>
+                  <strong>{formatTime(projected.finishTime)}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""}</strong>
                 </div>
                 <div>
                   <span>Customer</span>
@@ -925,12 +925,12 @@ function addBookMinutesWithinShop(startTime, bookMinutes, ctx) {
 }
 
 function getJobProjectedFinish(job, ctx) {
-  return addBookMinutesWithinShop(job?.start_time || "08:00", getBookMinutes(job), ctx);
+  return addBookMinutesWithinShop(getEffectiveJobStartTime(job), getBookMinutes(job), ctx);
 }
 
 function getRemainingBookHoursForRollover(job, ctx) {
   const schedule = getShopSchedule(ctx);
-  const start = timeStringToMinutes(job?.start_time || "08:00");
+  const start = timeStringToMinutes(getEffectiveJobStartTime(job));
   const totalMinutes = getBookMinutes(job);
   let usableToday = 0;
 
@@ -982,7 +982,7 @@ function calculateWorkingHoursBetween(startTime, endTime, ctx) {
 }
 
 function isJobPastBookTime(job, ctx) {
-  if (!job?.start_time || !job?.book_hours) return false;
+  if (!job?.book_hours) return false;
   const projected = getJobProjectedFinish(job, ctx);
   if (projected.dayOffset > 0) return false;
   return timeStringToMinutes(shortTime(new Date().toTimeString())) >= timeStringToMinutes(projected.finishTime);
@@ -1050,12 +1050,12 @@ function Schedule({ jobs, ctx, selectedDate }) {
   const scheduleJobs = [...jobs, ...helperScheduleJobs];
 
   function jobCoversSlot(job, slotTime) {
-    if (!job.start_time || !job.book_hours) return false;
+    if (!job.book_hours) return false;
 
     const schedule = getShopSchedule(ctx);
     const slotStart = timeStringToMinutes(slotTime);
     const slotEnd = slotStart + 30;
-    let minute = timeStringToMinutes(job.start_time);
+    let minute = timeStringToMinutes(getEffectiveJobStartTime(job));
     let counted = 0;
     const totalBookMinutes = getBookMinutes(job);
 
@@ -1071,7 +1071,7 @@ function Schedule({ jobs, ctx, selectedDate }) {
   }
 
   function isJobStart(job, slotTime) {
-    return shortTime(job.start_time) === slotTime;
+    return getEffectiveJobStartTime(job) === slotTime;
   }
 
   function jobStatusClass(job) {
@@ -1139,7 +1139,7 @@ function Schedule({ jobs, ctx, selectedDate }) {
                                 <strong>{productName}</strong><br />
                                 <span>{j.vehicle}</span><br />
                                 <small>
-                                  {shortTime(j.start_time)} → {projected.finishTime}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""} • {j.book_hours} hrs • {status?.name}
+                                  {formatTime(getEffectiveJobStartTime(j))} → {formatTime(projected.finishTime)}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""} • {j.book_hours} hrs • {status?.name}
                                 </small>
                               </>
                             ) : (
@@ -1187,8 +1187,8 @@ function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) 
         return (
           <div className="helperLine" key={helper.id}>
             <span>
-              {ctx.tech(helper.technician_id)?.name || "Helper"} • {shortTime(helper.start_time)}
-              {active ? " → Active" : ` → ${shortTime(helper.end_time)}`} • {displayHours} hrs
+              {ctx.tech(helper.technician_id)?.name || "Helper"} • {formatTime(helper.start_time)}
+              {active ? " → Active" : ` → ${formatTime(helper.end_time)}`} • {displayHours} hrs
             </span>
             <div className="helperActions">
               {active && <button onClick={() => onEndHelper(helper, job)}>End Help</button>}
@@ -1266,7 +1266,7 @@ function Foreman({ jobs, ctx, reload }) {
               <br />
               {job.customer}
               <br />
-              <b>{ctx.tech(job.technician_id)?.name}</b> • {formatTime(shortTime(job.start_time))} • {job.book_hours} book hrs
+              <b>{ctx.tech(job.technician_id)?.name}</b> • {formatTime(getEffectiveJobStartTime(job))} • {job.book_hours} book hrs
             </p>
             <div className="buttonGrid">
               {waiting && <button onClick={() => setStatus(job, waiting)}>Waiting</button>}
@@ -3103,7 +3103,7 @@ function JobCard({ job, ctx }) {
           {productName} — {job.vehicle}
         </h4>
         <p>
-          {job.customer} • {tech?.name} • {formatTime(shortTime(job.start_time))} • {job.book_hours} book hrs
+          {job.customer} • {tech?.name} • {formatTime(getEffectiveJobStartTime(job))} • {job.book_hours} book hrs
         </p>
         <div className="chips">
           <span>Actual: {job.actual_hours ?? "Open"}</span>
@@ -3427,6 +3427,18 @@ function getScheduledStartDate(job) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function getEffectiveJobStartTime(job) {
+  const startedAt = getJobStartedAt(job);
+  if (startedAt) return shortTime(startedAt.toTimeString());
+  return shortTime(job?.start_time || "08:00");
+}
+
+function getEffectiveJobStartLabel(job) {
+  const actual = getJobStartedAt(job);
+  if (actual) return `${formatTime(actual.toTimeString())} actual`;
+  return `${formatTime(job?.start_time || "08:00")} planned`;
+}
+
 function roundHours(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
@@ -3459,6 +3471,7 @@ function money(value) {
 }
 
 function formatTime(value) {
+  // User-facing time display: keep database values in 24-hour time, show AM/PM in the UI.
   const [h, m] = shortTime(value).split(":").map(Number);
   const d = new Date();
   d.setHours(h, m, 0, 0);
@@ -4168,7 +4181,7 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
 
     if (!start || Number.isNaN(start.getTime())) return null;
 
-    const projected = getJobProjectedFinish({ ...job, start_time: shortTime(start.toTimeString()) }, ctx);
+    const projected = getJobProjectedFinish({ ...job, start_time: shortTime(start.toTimeString()), production_started_at: null }, ctx);
     const [fh, fm] = shortTime(projected.finishTime).split(":").map(Number);
     const finish = new Date(start);
     finish.setHours(fh, fm, 0, 0);

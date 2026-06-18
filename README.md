@@ -26,3 +26,11 @@ Older helper records with excessive stored book hours are capped in performance 
 ## Helper-Only Performance Fix
 
 Technicians with no primary completed jobs but with helper hours now show helper contribution instead of sitting at 0%. Helper hours count at 100% in core performance, with a small separate Helper Curve bonus capped at +5%. Active helper time for today is included live.
+
+
+## Live Start Scheduling
+
+Start buttons now stamp `production_started_at`. Before a job is started, the schedule uses planned `start_time`. After Start is pressed, the schedule and projected finish use the actual start time while preserving the original planned start for reporting.
+
+## Latest UI Update
+- Mobile Manager now displays user-facing times in AM/PM format instead of military time.
