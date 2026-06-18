@@ -24,5 +24,8 @@ Cloud features included:
 * Admin add/edit/delete for technicians, categories, statuses, delay reasons, labor rates
 * Shop hours save to Supabase
 * Basic realtime refresh on job/product/technician changes
-* 
+
+
+
+
 
