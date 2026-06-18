@@ -278,7 +278,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         )}
 
         {view === "Performance" && (
-  <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} />
+  <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} access={access} />
 )}
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} />
@@ -1624,13 +1624,19 @@ function Products({ ctx, reload }) {
   );
 }
 
-function PerformanceCenter({ jobs, ctx, metrics }) {
+function PerformanceCenter({ jobs, ctx, metrics, access }) {
   const activeTechs = ctx.technicians.filter((t) => t.active);
   const [selectedTechId, setSelectedTechId] = useState(activeTechs[0]?.id || "");
+  const canViewDevelopment = canViewTechnicianDevelopment(access);
+  const [performanceMode, setPerformanceMode] = useState("performance");
 
   useEffect(() => {
     if (!selectedTechId && activeTechs[0]?.id) setSelectedTechId(activeTechs[0].id);
   }, [selectedTechId, activeTechs]);
+
+  useEffect(() => {
+    if (!canViewDevelopment && performanceMode === "development") setPerformanceMode("performance");
+  }, [canViewDevelopment, performanceMode]);
 
   const selectedTech = ctx.tech(selectedTechId) || activeTechs[0];
   const shopRows = buildProductPerformanceRows(jobs, ctx, null);
@@ -1642,7 +1648,7 @@ function PerformanceCenter({ jobs, ctx, metrics }) {
         <div>
           <p className="eyebrow">Performance Platform</p>
           <h3>Install times, efficiency, records, and shop averages</h3>
-          <p>No labor dollars. This page measures execution, consistency, QC, and improvement.</p>
+          <p>No labor dollars. This page measures execution, production, teamwork, and improvement.</p>
         </div>
         <div className="performanceHeroStats">
           <div>
@@ -1660,31 +1666,44 @@ function PerformanceCenter({ jobs, ctx, metrics }) {
         </div>
       </div>
 
-      <div className="grid two">
-        <Panel title="Technician Dashboard" chip={selectedTech?.name || "Select"}>
-          <div className="techSelector">
-            <label>
-              Select Technician
-              <select value={selectedTech?.id || ""} onChange={(e) => setSelectedTechId(e.target.value)}>
-                {activeTechs.map((tech) => (
-                  <option value={tech.id} key={tech.id}>
-                    {tech.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
-        </Panel>
-
-        <Panel title="Monthly Leaderboard" chip={currentMonthLabel()}>
-          <TechLeaderboard jobs={jobs} ctx={ctx} detailed monthly />
-        </Panel>
+      <div className="performanceTabs">
+        <button className={performanceMode === "performance" ? "active" : ""} onClick={() => setPerformanceMode("performance")}>Technician Performance</button>
+        {canViewDevelopment && (
+          <button className={performanceMode === "development" ? "active" : ""} onClick={() => setPerformanceMode("development")}>Technician Development</button>
+        )}
       </div>
 
-      <Panel title="Average Job Times by Product" chip="Shop averages">
-        <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
-      </Panel>
+      {performanceMode === "development" && canViewDevelopment ? (
+        <TechnicianDevelopmentCenter jobs={jobs} ctx={ctx} selectedTech={selectedTech} selectedTechId={selectedTechId} setSelectedTechId={setSelectedTechId} activeTechs={activeTechs} />
+      ) : (
+        <>
+          <div className="grid two">
+            <Panel title="Technician Dashboard" chip={selectedTech?.name || "Select"}>
+              <div className="techSelector">
+                <label>
+                  Select Technician
+                  <select value={selectedTech?.id || ""} onChange={(e) => setSelectedTechId(e.target.value)}>
+                    {activeTechs.map((tech) => (
+                      <option value={tech.id} key={tech.id}>
+                        {tech.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
+            </Panel>
+
+            <Panel title="Monthly Leaderboard" chip={currentMonthLabel()}>
+              <TechLeaderboard jobs={jobs} ctx={ctx} detailed monthly />
+            </Panel>
+          </div>
+
+          <Panel title="Average Job Times by Product" chip="Shop averages">
+            <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
+          </Panel>
+        </>
+      )}
     </section>
   );
 }
@@ -1739,6 +1758,143 @@ function TechnicianDashboard({ technician, jobs, ctx, rows }) {
 
       <h3 className="sectionTitle">Average Job Times</h3>
       <PerformanceTable rows={rows} emptyText="This technician needs completed jobs with actual hours." compact />
+    </div>
+  );
+}
+
+
+function TechnicianDevelopmentCenter({ jobs, ctx, selectedTech, selectedTechId, setSelectedTechId, activeTechs }) {
+  const techSummary = selectedTech ? buildTechnicianDevelopmentSummary(selectedTech, jobs, ctx) : null;
+  const teamSummaries = activeTechs
+    .map((tech) => buildTechnicianDevelopmentSummary(tech, jobs, ctx))
+    .sort((a, b) => b.developmentScore - a.developmentScore);
+
+  return (
+    <div className="developmentModule">
+      <Panel title="Technician Development" chip="Leadership only">
+        <div className="developmentIntro">
+          <div>
+            <p className="eyebrow">Foreman • Manager • Admin</p>
+            <h3>Long-term technician growth and coaching</h3>
+            <p>Built only from production, efficiency, over-book, job mix, and helper contribution data.</p>
+          </div>
+          <label className="developmentSelector">
+            Technician
+            <select value={selectedTech?.id || ""} onChange={(e) => setSelectedTechId(e.target.value)}>
+              {activeTechs.map((tech) => (
+                <option value={tech.id} key={tech.id}>{tech.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {techSummary && (
+          <>
+            <div className="developmentScoreCard">
+              <div>
+                <span>Development score</span>
+                <strong>{techSummary.developmentScore}/100</strong>
+                <p>{techSummary.trendLabel}</p>
+              </div>
+              <div>
+                <span>90-day efficiency</span>
+                <strong className={effClass(techSummary.efficiency90)}>{Math.round(techSummary.efficiency90)}%</strong>
+                <p>{formatTrendPoints(techSummary.efficiencyTrend)} vs previous 90 days</p>
+              </div>
+              <div>
+                <span>Helper contribution</span>
+                <strong>{techSummary.helperHours90.toFixed(1)}h</strong>
+                <p>{techSummary.jobsAssisted90} assisted jobs</p>
+              </div>
+            </div>
+
+            <div className="developmentCharts">
+              <TrendChart title="Efficiency trend" rows={techSummary.monthlyRows} valueKey="efficiency" suffix="%" />
+              <TrendChart title="Book hours produced" rows={techSummary.monthlyRows} valueKey="bookHours" suffix="h" />
+            </div>
+
+            <div className="grid two">
+              <DevelopmentNarrative summary={techSummary} />
+              <SpecialtyAnalysis rows={techSummary.specialties} />
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <Panel title="Team Development Snapshot" chip="90 days">
+        <div className="developmentTeamList">
+          {teamSummaries.map((summary) => (
+            <button key={summary.technician.id} className="developmentTeamRow" onClick={() => setSelectedTechId(summary.technician.id)}>
+              <strong>{summary.technician.name}</strong>
+              <span>{summary.developmentScore}/100</span>
+              <span>{Math.round(summary.efficiency90)}%</span>
+              <span>{summary.bookHours90.toFixed(1)} book hrs</span>
+              <span>{summary.helperHours90.toFixed(1)} helped hrs</span>
+            </button>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function TrendChart({ title, rows, valueKey, suffix = "" }) {
+  const cleanRows = rows.length ? rows : [{ label: "No data", [valueKey]: 0 }];
+  const max = Math.max(...cleanRows.map((row) => Number(row[valueKey] || 0)), 1);
+
+  return (
+    <div className="trendChartCard">
+      <h3>{title}</h3>
+      <div className="trendBars">
+        {cleanRows.map((row) => {
+          const value = Number(row[valueKey] || 0);
+          const height = Math.max(6, Math.round((value / max) * 100));
+          return (
+            <div className="trendBarGroup" key={row.label}>
+              <div className="trendBarTrack">
+                <div className="trendBarFill" style={{ height: `${height}%` }} />
+              </div>
+              <strong>{formatChartValue(value, suffix)}</strong>
+              <span>{row.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DevelopmentNarrative({ summary }) {
+  return (
+    <div className="developmentNarrative">
+      <h3>Automated coaching notes</h3>
+      <div>
+        <h4>Strengths</h4>
+        {summary.strengths.map((item) => <p key={item}>{item}</p>)}
+      </div>
+      <div>
+        <h4>Focus areas</h4>
+        {summary.focusAreas.map((item) => <p key={item}>{item}</p>)}
+      </div>
+      <div>
+        <h4>Recommended coaching</h4>
+        {summary.recommendations.map((item) => <p key={item}>{item}</p>)}
+      </div>
+    </div>
+  );
+}
+
+function SpecialtyAnalysis({ rows }) {
+  return (
+    <div className="specialtyBox">
+      <h3>Job mix and specialties</h3>
+      {rows.length ? rows.map((row) => (
+        <div className="specialtyRow" key={row.name}>
+          <span>{row.name}</span>
+          <strong>{renderStars(row.rating)}</strong>
+          <small>{row.jobs} jobs • {Math.round(row.efficiency)}%</small>
+        </div>
+      )) : <p className="muted">Complete jobs with actual hours to build specialty analysis.</p>}
     </div>
   );
 }
@@ -1841,6 +1997,206 @@ function MiniStat({ label, value }) {
   );
 }
 
+
+function canViewTechnicianDevelopment(access) {
+  return ["admin", "manager", "foreman"].includes(normalizeRole(access?.role));
+}
+
+function buildTechnicianDevelopmentSummary(technician, jobs, ctx) {
+  const now = new Date();
+  const last90Start = addDays(now, -90);
+  const prev90Start = addDays(now, -180);
+  const completed = jobs.filter((job) => job.technician_id === technician.id && ctx.isComplete(job.status_id) && Number(job.actual_hours) > 0);
+  const last90 = completed.filter((job) => getJobDate(job) >= last90Start && getJobDate(job) <= now);
+  const prev90 = completed.filter((job) => getJobDate(job) >= prev90Start && getJobDate(job) < last90Start);
+  const stats90 = summarizeCompletedJobs(last90);
+  const statsPrev90 = summarizeCompletedJobs(prev90);
+  const helper90 = getHelperPerformanceStats(ctx, technician.id, { sinceDate: toIsoDate(last90Start) });
+  const helperPrev90 = getHelperPerformanceStats(ctx, technician.id, { sinceDate: toIsoDate(prev90Start), beforeDate: toIsoDate(last90Start) });
+  const monthlyRows = buildMonthlyDevelopmentRows(technician.id, jobs, ctx, 6);
+  const specialties = buildSpecialtyDevelopmentRows(technician.id, jobs, ctx);
+  const efficiencyTrend = stats90.efficiency - statsPrev90.efficiency;
+  const bookTrend = stats90.bookHours - statsPrev90.bookHours;
+  const helperTrend = helper90.actualHours - helperPrev90.actualHours;
+  const overBookRate = stats90.completedJobs ? (stats90.overBookJobs / stats90.completedJobs) * 100 : 0;
+  const trendLabel = efficiencyTrend > 3 ? "Improving" : efficiencyTrend < -3 ? "Needs attention" : "Steady";
+  const developmentScore = calculateDevelopmentScore(stats90, statsPrev90, helper90);
+
+  return {
+    technician,
+    completedJobs90: stats90.completedJobs,
+    bookHours90: stats90.bookHours,
+    actualHours90: stats90.actualHours,
+    efficiency90: stats90.efficiency,
+    efficiencyTrend,
+    bookTrend,
+    helperHours90: helper90.actualHours,
+    helperTrend,
+    jobsAssisted90: helper90.assignments,
+    overBookJobs90: stats90.overBookJobs,
+    overBookRate,
+    avgMinutesOverBook: stats90.avgMinutesOverBook,
+    monthlyRows,
+    specialties,
+    trendLabel,
+    developmentScore,
+    strengths: buildDevelopmentStrengths(stats90, statsPrev90, helper90, helperPrev90, specialties),
+    focusAreas: buildDevelopmentFocusAreas(stats90, statsPrev90, helper90, overBookRate, specialties),
+    recommendations: buildDevelopmentRecommendations(stats90, helper90, overBookRate, specialties, efficiencyTrend),
+  };
+}
+
+function summarizeCompletedJobs(rows) {
+  const completedJobs = rows.length;
+  const bookHours = roundHours(rows.reduce((sum, job) => sum + Number(job.book_hours || 0), 0));
+  const actualHours = roundHours(rows.reduce((sum, job) => sum + Number(job.actual_hours || 0), 0));
+  const efficiency = actualHours ? (bookHours / actualHours) * 100 : 0;
+  const overRows = rows.filter((job) => Number(job.actual_hours || 0) > Number(job.book_hours || 0));
+  const minutesOver = overRows.map((job) => Math.max(0, (Number(job.actual_hours || 0) - Number(job.book_hours || 0)) * 60));
+  return {
+    completedJobs,
+    bookHours,
+    actualHours,
+    efficiency,
+    overBookJobs: overRows.length,
+    avgMinutesOverBook: minutesOver.length ? minutesOver.reduce((a, b) => a + b, 0) / minutesOver.length : 0,
+  };
+}
+
+function calculateDevelopmentScore(current, previous, helperStats) {
+  let score = 70;
+  score += clamp((current.efficiency - 90) * 0.35, -15, 18);
+  score += clamp((current.bookHours - 20) * 0.25, -8, 12);
+  score += clamp((current.efficiency - previous.efficiency) * 0.9, -12, 12);
+  score += clamp(helperStats.actualHours * 0.8, 0, 8);
+  score -= clamp(current.overBookJobs * 1.5, 0, 10);
+  return Math.round(clamp(score, 0, 100));
+}
+
+function buildMonthlyDevelopmentRows(technicianId, jobs, ctx, monthsBack = 6) {
+  const now = new Date();
+  const rows = [];
+  for (let i = monthsBack - 1; i >= 0; i -= 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const month = d.getMonth();
+    const year = d.getFullYear();
+    const monthJobs = jobs.filter((job) => {
+      if (job.technician_id !== technicianId || !ctx.isComplete(job.status_id) || Number(job.actual_hours) <= 0) return false;
+      const jd = getJobDate(job);
+      return jd.getFullYear() === year && jd.getMonth() === month;
+    });
+    const summary = summarizeCompletedJobs(monthJobs);
+    const helper = getHelperPerformanceStats(ctx, technicianId, { monthDate: d });
+    rows.push({
+      label: d.toLocaleString("en-US", { month: "short" }),
+      efficiency: Math.round(summary.efficiency),
+      bookHours: roundHours(summary.bookHours + helper.bookHours),
+      helperHours: helper.actualHours,
+      jobs: summary.completedJobs,
+    });
+  }
+  return rows;
+}
+
+function buildSpecialtyDevelopmentRows(technicianId, jobs, ctx) {
+  const completed = jobs.filter((job) => job.technician_id === technicianId && ctx.isComplete(job.status_id) && Number(job.actual_hours) > 0);
+  const byCategory = new Map();
+  for (const job of completed) {
+    const product = ctx.product(job.product_id);
+    const category = product ? ctx.category(product.category_id) : null;
+    const name = category?.name || product?.name || "General installs";
+    const current = byCategory.get(name) || { name, jobs: 0, bookHours: 0, actualHours: 0 };
+    current.jobs += 1;
+    current.bookHours += Number(job.book_hours || 0);
+    current.actualHours += Number(job.actual_hours || 0);
+    byCategory.set(name, current);
+  }
+  return [...byCategory.values()]
+    .map((row) => {
+      const efficiency = row.actualHours ? (row.bookHours / row.actualHours) * 100 : 0;
+      return { ...row, efficiency, rating: efficiencyToStars(efficiency, row.jobs) };
+    })
+    .sort((a, b) => b.efficiency - a.efficiency)
+    .slice(0, 6);
+}
+
+function buildDevelopmentStrengths(current, previous, helperStats, previousHelperStats, specialties) {
+  const items = [];
+  if (current.efficiency >= 105) items.push("High production efficiency over the last 90 days.");
+  if (current.efficiency - previous.efficiency >= 5) items.push("Efficiency trend is improving compared with the previous 90 days.");
+  if (current.bookHours >= previous.bookHours + 5) items.push("Book hours produced are increasing.");
+  if (helperStats.actualHours >= 2) items.push("Strong helper contribution and teamwork.");
+  if (helperStats.actualHours > previousHelperStats.actualHours) items.push("Helper contribution is trending up.");
+  if (specialties[0]?.jobs >= 2) items.push(`Strongest category: ${specialties[0].name}.`);
+  return items.length ? items : ["Baseline data is building. Continue completing jobs with actual hours." ];
+}
+
+function buildDevelopmentFocusAreas(current, previous, helperStats, overBookRate, specialties) {
+  const items = [];
+  if (current.efficiency > 0 && current.efficiency < 95) items.push("Overall production efficiency is below target.");
+  if (current.efficiency - previous.efficiency <= -5) items.push("Efficiency has declined versus the previous 90 days.");
+  if (overBookRate >= 35) items.push("High percentage of jobs are finishing over book time.");
+  if (current.avgMinutesOverBook >= 30) items.push(`Average over-book time is ${Math.round(current.avgMinutesOverBook)} minutes on jobs that exceed book.`);
+  const lowSpecialty = specialties.find((row) => row.jobs >= 2 && row.efficiency < 90);
+  if (lowSpecialty) items.push(`${lowSpecialty.name} is tracking below normal efficiency.`);
+  if (helperStats.actualHours < 0.5 && current.completedJobs > 0) items.push("Low helper contribution; look for safe opportunities to assist other techs when available.");
+  return items.length ? items : ["No major focus area detected from the current production data." ];
+}
+
+function buildDevelopmentRecommendations(current, helperStats, overBookRate, specialties, efficiencyTrend) {
+  const items = [];
+  if (current.efficiency < 95) items.push("Review recent over-book jobs and identify the repeat causes before assigning similar work." );
+  if (overBookRate >= 35) items.push("Use prep/staging checklists on larger installs until over-book percentage drops." );
+  if (efficiencyTrend >= 5) items.push("Keep the current job mix steady; the trend is moving in the right direction." );
+  if (helperStats.actualHours >= 2) items.push("Continue using this technician as a support resource when primary workload allows." );
+  const highSpecialty = specialties.find((row) => row.jobs >= 2 && row.efficiency >= 105);
+  if (highSpecialty) items.push(`Assign more ${highSpecialty.name} work when schedule pressure is high.` );
+  return items.length ? items : ["Keep collecting production data and review again after more completed work." ];
+}
+
+function getJobDate(job) {
+  const value = job.completed_at || job.updated_at || job.scheduled_date || job.created_at || todayIso();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date(`${todayIso()}T00:00:00`) : d;
+}
+
+function addDays(date, amount) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + amount);
+  return d;
+}
+
+function toIsoDate(date) {
+  return new Date(date).toISOString().slice(0, 10);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value) || 0));
+}
+
+function formatTrendPoints(value) {
+  if (!Number.isFinite(value) || Math.abs(value) < 0.1) return "steady";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)} pts`;
+}
+
+function formatChartValue(value, suffix) {
+  const n = Number(value || 0);
+  return `${suffix === "%" ? Math.round(n) : n.toFixed(1)}${suffix}`;
+}
+
+function efficiencyToStars(efficiency, jobs) {
+  if (!jobs) return 0;
+  if (efficiency >= 110) return 5;
+  if (efficiency >= 100) return 4;
+  if (efficiency >= 90) return 3;
+  if (efficiency >= 80) return 2;
+  return 1;
+}
+
+function renderStars(rating) {
+  return `${"★".repeat(rating)}${"☆".repeat(5 - rating)}`;
+}
+
 // 8) Add these helper functions near the bottom:
 function getTechStats(jobs, ctx, technicianId, options = {}) {
   const completed = jobs.filter(
@@ -1929,10 +2285,18 @@ function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
 
     if (options.selectedDate && helper.scheduled_date !== options.selectedDate) return false;
 
+    const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
+    const d = stamp ? new Date(stamp) : null;
+
+    if (options.sinceDate && (!d || d < new Date(`${options.sinceDate}T00:00:00`))) return false;
+    if (options.beforeDate && (!d || d >= new Date(`${options.beforeDate}T00:00:00`))) return false;
+    if (options.monthDate) {
+      const monthDate = new Date(options.monthDate);
+      if (!d || d.getFullYear() !== monthDate.getFullYear() || d.getMonth() !== monthDate.getMonth()) return false;
+    }
+
     if (options.monthly) {
-      const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
-      if (!stamp) return false;
-      const d = new Date(stamp);
+      if (!d) return false;
       const now = new Date();
       if (Number.isNaN(d.getTime())) return false;
       if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) return false;
@@ -1965,10 +2329,18 @@ function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
 
     if (options.selectedDate && helper.scheduled_date !== options.selectedDate) return false;
 
+    const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
+    const d = stamp ? new Date(stamp) : null;
+
+    if (options.sinceDate && (!d || d < new Date(`${options.sinceDate}T00:00:00`))) return false;
+    if (options.beforeDate && (!d || d >= new Date(`${options.beforeDate}T00:00:00`))) return false;
+    if (options.monthDate) {
+      const monthDate = new Date(options.monthDate);
+      if (!d || d.getFullYear() !== monthDate.getFullYear() || d.getMonth() !== monthDate.getMonth()) return false;
+    }
+
     if (options.monthly) {
-      const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
-      if (!stamp) return false;
-      const d = new Date(stamp);
+      if (!d) return false;
       const now = new Date();
       if (Number.isNaN(d.getTime())) return false;
       if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) return false;
@@ -4131,7 +4503,7 @@ function getAllowedViewNames(access) {
   const map = {
     admin: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"],
     manager: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Cloud Status"],
-    foreman: ["Mobile Manager", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
+    foreman: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
     service_writer: ["Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
     technician: ["Mobile Manager", "Dashboard"],
   };

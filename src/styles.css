@@ -493,3 +493,255 @@ button:not(.primary):not(.sidebarButton) {
 .helperActions button:first-child {
   font-weight: 700;
 }
+
+/* Technician Development v3.2 */
+.performanceHeroStats div {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.performanceHeroStats span {
+  font-size: 15px;
+  font-weight: 850;
+  color: rgba(255,255,255,.9);
+}
+
+.performanceHeroStats strong {
+  display: block;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.performanceTabs {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+
+.performanceTabs button {
+  border: 1px solid var(--line);
+  background: white;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 12px 16px;
+  font-weight: 950;
+}
+
+.performanceTabs button.active {
+  background: #f97316;
+  color: white;
+  border-color: #f97316;
+  box-shadow: 0 12px 28px rgba(249,115,22,.24);
+}
+
+.developmentModule {
+  display: grid;
+  gap: 16px;
+}
+
+.developmentIntro {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 340px);
+  gap: 18px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.developmentIntro h3 {
+  font-size: 28px;
+  margin: 5px 0;
+  letter-spacing: -.04em;
+}
+
+.developmentSelector {
+  display: grid;
+  gap: 8px;
+  font-weight: 950;
+  color: #334155;
+}
+
+.developmentSelector select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-height: 48px;
+  padding: 0 12px;
+  font-weight: 950;
+  background: white;
+}
+
+.developmentScoreCard {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.developmentScoreCard div,
+.trendChartCard,
+.developmentNarrative,
+.specialtyBox {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #f8fafc;
+  padding: 16px;
+}
+
+.developmentScoreCard span {
+  display: block;
+  color: #64748b;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: 12px;
+}
+
+.developmentScoreCard strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.developmentScoreCard p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-weight: 850;
+}
+
+.developmentCharts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.trendChartCard h3,
+.developmentNarrative h3,
+.specialtyBox h3 {
+  margin: 0 0 12px;
+  letter-spacing: -.03em;
+}
+
+.trendBars {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  align-items: end;
+  min-height: 190px;
+}
+
+.trendBarGroup {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-align: center;
+  color: #64748b;
+  font-weight: 850;
+  font-size: 12px;
+}
+
+.trendBarTrack {
+  height: 120px;
+  width: 100%;
+  max-width: 38px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  display: flex;
+  align-items: end;
+  overflow: hidden;
+}
+
+.trendBarFill {
+  width: 100%;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #fb923c, #f97316);
+}
+
+.trendBarGroup strong {
+  color: #0f172a;
+}
+
+.developmentNarrative {
+  display: grid;
+  gap: 12px;
+}
+
+.developmentNarrative h4 {
+  margin: 0 0 6px;
+  color: #f97316;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 12px;
+}
+
+.developmentNarrative p {
+  margin: 4px 0;
+  font-weight: 750;
+  color: #334155;
+}
+
+.specialtyRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  align-items: center;
+}
+
+.specialtyRow span {
+  font-weight: 950;
+}
+
+.specialtyRow strong {
+  color: #f97316;
+  letter-spacing: .08em;
+}
+
+.specialtyRow small {
+  color: #64748b;
+  font-weight: 850;
+}
+
+.developmentTeamList {
+  display: grid;
+  gap: 10px;
+}
+
+.developmentTeamRow {
+  display: grid;
+  grid-template-columns: 1.2fr .6fr .6fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-weight: 850;
+  color: #334155;
+}
+
+.developmentTeamRow strong {
+  color: #0f172a;
+}
+
+@media(max-width:900px) {
+  .developmentIntro,
+  .developmentScoreCard,
+  .developmentCharts,
+  .developmentTeamRow {
+    grid-template-columns: 1fr;
+  }
+
+  .performanceHeroStats strong {
+    font-size: 30px;
+  }
+}
