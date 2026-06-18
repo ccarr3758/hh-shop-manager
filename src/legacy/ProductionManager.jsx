@@ -782,6 +782,18 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
   />
 
   <Kpi
+    title="Helper Book Hours"
+    value={metrics.helperBookComplete.toFixed(1)}
+    caption="Added to performance"
+  />
+
+  <Kpi
+    title="Helper Actual Hours"
+    value={metrics.helperActualUsed.toFixed(1)}
+    caption="Hours helped"
+  />
+
+  <Kpi
     title="Average Install Time"
     value={`${metrics.avgActualTime.toFixed(2)} hrs`}
     caption="Completed jobs"
@@ -1361,7 +1373,10 @@ function Technicians({ jobs, ctx }) {
           const completed = techJobs.filter((j) => ctx.isComplete(j.status_id) && j.actual_hours);
           const book = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
           const actual = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
-          const eff = actual ? (book / actual) * 100 : 0;
+          const helperStats = getHelperPerformanceStats(ctx, tech.id);
+          const bookWithHelpers = book + helperStats.bookHours;
+          const actualWithHelpers = actual + helperStats.actualHours;
+          const eff = actualWithHelpers ? (bookWithHelpers / actualWithHelpers) * 100 : 0;
 
           return (
             <div className={`scoreCard ${!tech.active ? "inactive" : ""}`} key={tech.id}>
@@ -1373,8 +1388,12 @@ function Technicians({ jobs, ctx }) {
               <div className="scoreGrid">
                 <Metric label="Efficiency" value={`${Math.round(eff)}%`} className={effClass(eff)} />
                 <Metric label="Goal" value={`${tech.efficiency_goal || 0}%`} />
-                <Metric label="Book hrs" value={book.toFixed(1)} />
-                <Metric label="Actual hrs" value={actual.toFixed(1)} />
+                <Metric label="Primary Book" value={book.toFixed(1)} />
+                <Metric label="Helper Book" value={helperStats.bookHours.toFixed(1)} />
+                <Metric label="Total Book" value={bookWithHelpers.toFixed(1)} />
+                <Metric label="Actual hrs" value={actualWithHelpers.toFixed(1)} />
+                <Metric label="Hours Helped" value={helperStats.actualHours.toFixed(1)} />
+                <Metric label="Help Received" value={helperStats.receivedActualHours.toFixed(1)} />
                 <Metric label="Jobs" value={completed.length} />
               </div>
             </div>
@@ -1636,8 +1655,12 @@ function TechnicianDashboard({ technician, jobs, ctx, rows }) {
 
       <div className="techStatGrid">
         <MiniStat label="Jobs Completed" value={stats.completedJobs} />
-        <MiniStat label="Book Hours" value={stats.bookHours.toFixed(1)} />
+        <MiniStat label="Primary Book Hours" value={stats.jobBookHours.toFixed(1)} />
+        <MiniStat label="Helper Book Hours" value={stats.helperBookHours.toFixed(1)} />
+        <MiniStat label="Total Book Hours" value={stats.bookHours.toFixed(1)} />
         <MiniStat label="Actual Hours" value={stats.actualHours.toFixed(1)} />
+        <MiniStat label="Hours Helped Others" value={stats.helperActualHours.toFixed(1)} />
+        <MiniStat label="Help Received" value={stats.helpReceivedActualHours.toFixed(1)} />
         <MiniStat label="Avg Job Time" value={`${stats.avgActual.toFixed(2)}h`} />
         <MiniStat label="QC Pass Rate" value={`${Math.round(stats.qcPassRate)}%`} />
         <MiniStat label="Goal" value={`${technician.efficiency_goal || 110}%`} />
@@ -1764,22 +1787,96 @@ function MiniStat({ label, value }) {
 }
 
 // 8) Add these helper functions near the bottom:
-function getTechStats(jobs, ctx, technicianId) {
+function getTechStats(jobs, ctx, technicianId, options = {}) {
   const completed = jobs.filter(
     (j) => (!technicianId || j.technician_id === technicianId) && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
   );
 
-  const bookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
-  const actualHours = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const jobBookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const jobActualHours = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const helperStats = getHelperPerformanceStats(ctx, technicianId, options);
+  const receivedStats = getHelpReceivedStats(ctx, technicianId, options);
+  const bookHours = jobBookHours + helperStats.bookHours;
+  const actualHours = jobActualHours + helperStats.actualHours;
   const qcPassed = completed.filter((j) => (j.qc || "").toLowerCase() === "yes").length;
 
   return {
     completedJobs: completed.length,
     bookHours,
     actualHours,
+    jobBookHours,
+    jobActualHours,
+    helperBookHours: helperStats.bookHours,
+    helperActualHours: helperStats.actualHours,
+    helperAssignments: helperStats.assignments,
+    helpReceivedAssignments: receivedStats.assignments,
+    helpReceivedBookHours: receivedStats.bookHours,
+    helpReceivedActualHours: receivedStats.actualHours,
     efficiency: actualHours ? (bookHours / actualHours) * 100 : 0,
-    avgActual: completed.length ? actualHours / completed.length : 0,
+    avgActual: completed.length ? jobActualHours / completed.length : 0,
     qcPassRate: completed.length ? (qcPassed / completed.length) * 100 : 0,
+  };
+}
+
+function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
+  const helpers = (ctx.jobHelpers || []).filter((helper) => {
+    if (technicianId && helper.technician_id !== technicianId) return false;
+    if (!Number(helper.actual_hours) && !helper.end_time) return false;
+    if ((helper.status || "ended") === "active" && !helper.end_time) return false;
+
+    if (options.selectedDate && helper.scheduled_date !== options.selectedDate) return false;
+
+    if (options.monthly) {
+      const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
+      if (!stamp) return false;
+      const d = new Date(stamp);
+      const now = new Date();
+      if (Number.isNaN(d.getTime())) return false;
+      if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) return false;
+    }
+
+    return true;
+  });
+
+  const receivedStats = technicianId ? getHelpReceivedStats(ctx, technicianId, options) : { assignments: 0, bookHours: 0, actualHours: 0 };
+
+  return {
+    assignments: helpers.length,
+    bookHours: helpers.reduce((sum, helper) => sum + Number(helper.book_hours || 0), 0),
+    actualHours: helpers.reduce((sum, helper) => sum + Number(helper.actual_hours || 0), 0),
+    receivedAssignments: receivedStats.assignments,
+    receivedBookHours: receivedStats.bookHours,
+    receivedActualHours: receivedStats.actualHours,
+  };
+}
+
+function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
+  const helpers = (ctx.jobHelpers || []).filter((helper) => {
+    if (!Number(helper.actual_hours) && !helper.end_time) return false;
+    if ((helper.status || "ended") === "active" && !helper.end_time) return false;
+
+    const primaryJob = (ctx.jobs || []).find((job) => job.id === helper.job_id);
+    if (!primaryJob) return false;
+    if (technicianId && primaryJob.technician_id !== technicianId) return false;
+
+    if (options.selectedDate && helper.scheduled_date !== options.selectedDate) return false;
+
+    if (options.monthly) {
+      const stamp = helper.ended_at || helper.scheduled_date || helper.updated_at || helper.created_at;
+      if (!stamp) return false;
+      const d = new Date(stamp);
+      const now = new Date();
+      if (Number.isNaN(d.getTime())) return false;
+      if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) return false;
+    }
+
+    return true;
+  });
+
+  return {
+    assignments: helpers.length,
+    bookHours: helpers.reduce((sum, helper) => sum + Number(helper.book_hours || 0), 0),
+    actualHours: helpers.reduce((sum, helper) => sum + Number(helper.actual_hours || 0), 0),
   };
 }
 
@@ -2993,7 +3090,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
   const sourceJobs = monthly ? currentMonthCompletedJobs(jobs, ctx) : jobs;
   const rows = ctx.technicians
     .map((tech) => {
-      const stats = getTechStats(sourceJobs, ctx, tech.id);
+      const stats = getTechStats(sourceJobs, ctx, tech.id, { monthly });
       return { tech, stats, savedHours: stats.bookHours - stats.actualHours };
     })
     .sort((a, b) => {
@@ -3002,7 +3099,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
       return b.stats.bookHours - a.stats.bookHours;
     });
 
-  const shopStats = getTechStats(sourceJobs, ctx, null);
+  const shopStats = getTechStats(sourceJobs, ctx, null, { monthly });
   const best = rows.find((row) => row.stats.completedJobs > 0);
 
   return (
@@ -3012,7 +3109,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
           <div>
             <b>{currentMonthLabel()} Shop Average</b>
             <span>
-              {shopStats.completedJobs} jobs • {shopStats.bookHours.toFixed(1)} book hrs • Best: {best?.tech?.name || "—"}
+              {shopStats.completedJobs} jobs • {shopStats.helperBookHours.toFixed(1)} helper book hrs • {shopStats.helperActualHours.toFixed(1)} hours helped • {shopStats.bookHours.toFixed(1)} book hrs • Best: {best?.tech?.name || "—"}
             </span>
           </div>
           <strong className={effClass(shopStats.efficiency)}>{shopStats.efficiency ? `${Math.round(shopStats.efficiency)}%` : "—"}</strong>
@@ -3027,7 +3124,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
                 {medal} {tech.name}
               </b>
               <span>
-                {stats.completedJobs} jobs • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
+                {stats.completedJobs} jobs • helped {stats.helperActualHours.toFixed(1)}h • received {stats.helpReceivedActualHours.toFixed(1)}h • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
                 {detailed ? ` • avg ${stats.avgActual.toFixed(2)}h` : ""}
               </span>
             </div>
@@ -3129,8 +3226,12 @@ async function fetchJobs(companyId) {
 
 function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
-  const bookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
-  const actualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const helperStats = getHelperPerformanceStats(ctx, null, { selectedDate });
+  const receivedStats = getHelpReceivedStats(ctx, null, { selectedDate });
+  const jobBookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const jobActualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
+  const bookComplete = jobBookComplete + helperStats.bookHours;
+  const actualUsed = jobActualUsed + helperStats.actualHours;
   const clockedInTechs = getClockedInTechnicians(ctx, selectedDate);
   const availableTechCount = clockedInTechs.length || 1;
 
@@ -3138,7 +3239,7 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
     capacity: Math.min(
       100,
       Math.round(
-        (jobs.reduce((a, j) => a + Number(j.book_hours || 0), 0) /
+        ((jobs.reduce((a, j) => a + Number(j.book_hours || 0), 0) + helperStats.bookHours) /
           (availableTechCount * 8 || 1)) *
           100
       )
@@ -3147,7 +3248,11 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
     completedJobs: completed.length,
     bookComplete,
     actualUsed,
-    avgActualTime: completed.length ? actualUsed / completed.length : 0,
+    helperBookComplete: helperStats.bookHours,
+    helperActualUsed: helperStats.actualHours,
+    helpReceivedBookComplete: receivedStats.bookHours,
+    helpReceivedActualUsed: receivedStats.actualHours,
+    avgActualTime: completed.length ? jobActualUsed / completed.length : 0,
   };
 }
 

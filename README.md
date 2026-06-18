@@ -29,3 +29,8 @@ Helpers can now be assigned even after a job has exceeded book time. When help i
 
 ## Helper over-book credit
 Helpers can now be assigned even after the lead job is past book time. Actual helper time is stored in `actual_hours`; credited helper time is stored in `book_hours`. Any helper time after the lead job's projected book finish is credited at 110% efficiency.
+
+
+## Helper hours breakdown
+
+Technician performance now separates primary book hours, helper book hours, total book hours, hours helped, and help received. Helper hours add to book/actual performance totals but do not increase job count.
