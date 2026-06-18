@@ -579,8 +579,8 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       scheduled_date: job.scheduled_date || selectedDate || todayIso(),
       actual_hours: null,
       notes: overBook
-        ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 110% of actual helper time.`
-        : `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 110% of actual helper time.`,
+        ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 100% actual time for core efficiency. A separate helper curve bonus is applied in performance reports.`
+        : `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 100% actual time for core efficiency. A separate helper curve bonus is applied in performance reports.`,
       updated_at: new Date().toISOString(),
     };
 
@@ -989,11 +989,11 @@ function isJobPastBookTime(job, ctx) {
 }
 
 function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
-  // Helper credit is intentionally capped as its own 110% efficiency bucket.
-  // It is NOT based on remaining job book time and it does NOT compound.
-  // Formula: helper book credit = actual helper time × 1.10.
+  // Helper credit is intentionally capped at 100% for core efficiency.
+  // Helper work still helps the technician through a separate small curve bonus.
+  // Formula: helper book credit = actual helper time.
   const actualHours = calculateWorkingHoursBetween(helperStartTime, helperEndTime, ctx);
-  return roundHours(actualHours * 1.1);
+  return roundHours(actualHours);
 }
 
 function calculateHelperBookHours(job, helperStartTime, ctx) {
@@ -1360,7 +1360,9 @@ function Technicians({ jobs, ctx }) {
           const helperStats = getHelperPerformanceStats(ctx, tech.id);
           const bookWithHelpers = book + helperStats.bookHours;
           const actualWithHelpers = actual + helperStats.actualHours;
-          const eff = actualWithHelpers ? (bookWithHelpers / actualWithHelpers) * 100 : 0;
+          const baseEff = actualWithHelpers ? (bookWithHelpers / actualWithHelpers) * 100 : 0;
+          const helperCurveBonus = getHelperCurveBonusPercent(helperStats.actualHours);
+          const eff = baseEff ? baseEff + helperCurveBonus : 0;
 
           return (
             <div className={`scoreCard ${!tech.active ? "inactive" : ""}`} key={tech.id}>
@@ -1377,6 +1379,7 @@ function Technicians({ jobs, ctx }) {
                 <Metric label="Total Book" value={bookWithHelpers.toFixed(1)} />
                 <Metric label="Actual hrs" value={actualWithHelpers.toFixed(1)} />
                 <Metric label="Hours Helped" value={helperStats.actualHours.toFixed(1)} />
+                <Metric label="Helper Curve" value={`+${helperCurveBonus.toFixed(1)}%`} />
                 <Metric label="Help Received" value={helperStats.receivedActualHours.toFixed(1)} />
                 <Metric label="Jobs" value={completed.length} />
               </div>
@@ -1644,6 +1647,7 @@ function TechnicianDashboard({ technician, jobs, ctx, rows }) {
         <MiniStat label="Total Book Hours" value={stats.bookHours.toFixed(1)} />
         <MiniStat label="Actual Hours" value={stats.actualHours.toFixed(1)} />
         <MiniStat label="Hours Helped Others" value={stats.helperActualHours.toFixed(1)} />
+        <MiniStat label="Helper Curve" value={`+${stats.helperCurveBonus.toFixed(1)}%`} />
         <MiniStat label="Help Received" value={stats.helpReceivedActualHours.toFixed(1)} />
         <MiniStat label="Avg Job Time" value={`${stats.avgActual.toFixed(2)}h`} />
         <MiniStat label="QC Pass Rate" value={`${Math.round(stats.qcPassRate)}%`} />
@@ -1782,6 +1786,9 @@ function getTechStats(jobs, ctx, technicianId, options = {}) {
   const receivedStats = getHelpReceivedStats(ctx, technicianId, options);
   const bookHours = jobBookHours + helperStats.bookHours;
   const actualHours = jobActualHours + helperStats.actualHours;
+  const baseEfficiency = actualHours ? (bookHours / actualHours) * 100 : 0;
+  const helperCurveBonus = getHelperCurveBonusPercent(helperStats.actualHours);
+  const efficiencyWithHelperCurve = baseEfficiency ? baseEfficiency + helperCurveBonus : 0;
   const qcPassed = completed.filter((j) => (j.qc || "").toLowerCase() === "yes").length;
 
   return {
@@ -1792,11 +1799,13 @@ function getTechStats(jobs, ctx, technicianId, options = {}) {
     jobActualHours,
     helperBookHours: helperStats.bookHours,
     helperActualHours: helperStats.actualHours,
+    helperCurveBonus,
+    baseEfficiency,
     helperAssignments: helperStats.assignments,
     helpReceivedAssignments: receivedStats.assignments,
     helpReceivedBookHours: receivedStats.bookHours,
     helpReceivedActualHours: receivedStats.actualHours,
-    efficiency: actualHours ? (bookHours / actualHours) * 100 : 0,
+    efficiency: efficiencyWithHelperCurve,
     avgActual: completed.length ? jobActualHours / completed.length : 0,
     qcPassRate: completed.length ? (qcPassed / completed.length) * 100 : 0,
   };
@@ -1809,12 +1818,17 @@ function getCappedHelperActualHours(helper) {
 function getCappedHelperBookHours(helper) {
   const actual = getCappedHelperActualHours(helper);
   const storedBook = Number(helper?.book_hours || 0);
-  const cappedBook = roundHours(actual * 1.1);
 
-  // Use the capped value for any ended helper record with actual hours.
-  // This protects performance reports from older over-credit records.
-  if (actual > 0) return Math.min(storedBook || cappedBook, cappedBook);
+  // Core performance uses helper time at 100% so it cannot inflate efficiency.
+  // Older helper rows may have over-credited book hours, so cap them back to actual time.
+  if (actual > 0) return Math.min(storedBook || actual, actual);
   return storedBook;
+}
+
+function getHelperCurveBonusPercent(helperActualHours) {
+  // Incentive curve: +0.5 efficiency point per helper hour, capped at +5 points.
+  // This rewards helping without allowing a few minutes of helper time to create extreme efficiency.
+  return Math.min(5, roundHours(Number(helperActualHours || 0) * 0.5));
 }
 
 function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
@@ -3123,7 +3137,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
                 {medal} {tech.name}
               </b>
               <span>
-                {stats.completedJobs} jobs • helped {stats.helperActualHours.toFixed(1)}h • received {stats.helpReceivedActualHours.toFixed(1)}h • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
+                {stats.completedJobs} jobs • helped {stats.helperActualHours.toFixed(1)}h • curve +{stats.helperCurveBonus.toFixed(1)}% • received {stats.helpReceivedActualHours.toFixed(1)}h • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
                 {detailed ? ` • avg ${stats.avgActual.toFixed(2)}h` : ""}
               </span>
             </div>
@@ -3231,6 +3245,8 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const jobActualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
   const bookComplete = jobBookComplete + helperStats.bookHours;
   const actualUsed = jobActualUsed + helperStats.actualHours;
+  const helperCurveBonus = getHelperCurveBonusPercent(helperStats.actualHours);
+  const baseEfficiency = actualUsed ? (bookComplete / actualUsed) * 100 : 0;
   const clockedInTechs = getClockedInTechnicians(ctx, selectedDate);
   const availableTechCount = clockedInTechs.length || 1;
 
@@ -3243,7 +3259,9 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
           100
       )
     ),
-    efficiency: actualUsed ? (bookComplete / actualUsed) * 100 : 0,
+    efficiency: baseEfficiency ? baseEfficiency + helperCurveBonus : 0,
+    baseEfficiency,
+    helperCurveBonus,
     completedJobs: completed.length,
     bookComplete,
     actualUsed,
