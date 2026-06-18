@@ -43,3 +43,10 @@ create table if not exists audit_logs (
 create index if not exists idx_audit_logs_company_created on audit_logs(company_id, created_at desc);
 create index if not exists idx_audit_logs_entity on audit_logs(entity_type, entity_id);
 create index if not exists idx_audit_logs_action on audit_logs(action);
+
+-- v3.3.1 support older installs that predate H&H Shop Manager tickets.
+alter table comeback_rework
+add column if not exists is_pre_app_ticket boolean not null default false,
+add column if not exists pre_app_ticket_ref text null;
+
+create index if not exists idx_comeback_rework_pre_app on comeback_rework(company_id, is_pre_app_ticket);

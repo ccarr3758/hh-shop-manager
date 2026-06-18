@@ -43,3 +43,8 @@ Start buttons now stamp `production_started_at`. Before a job is started, the sc
 - Prominent Book Time
 - Live Time Remaining / Over By display
 - Thin actual-start progress bar
+
+## v3.3.1
+- Comebacks / Rework moved to Production Log.
+- Added Pre-App Ticket support for older installs that predate app records.
+- Audit Log remains in Admin.

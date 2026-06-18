@@ -1412,6 +1412,7 @@ function Foreman({ jobs, ctx, reload, access }) {
 
 function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
   const [search, setSearch] = useState("");
+  const [logTab, setLogTab] = useState("completed");
   const filteredJobs = jobs.filter((j) => {
     const haystack = [j.customer, j.vehicle, ctx.jobProductsSummary(j), ctx.tech(j.technician_id)?.name, ctx.status(j.status_id)?.name]
       .join(" ")
@@ -1438,45 +1439,56 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
 
   return (
     <section className="page">
-      <Panel title="Production Log" chip={`${filteredJobs.length} jobs`}>
-        <div className="adminActions">
-          <input placeholder="Search customer, vehicle, job, tech..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <Panel title="Production Log" chip={logTab === "completed" ? `${filteredJobs.length} jobs` : `${ctx.comebackRework?.length || 0} comebacks`}>
+        <div className="subTabs productionSubTabs">
+          <button className={logTab === "completed" ? "active" : ""} onClick={() => setLogTab("completed")}>Completed Jobs</button>
+          <button className={logTab === "comebacks" ? "active" : ""} onClick={() => setLogTab("comebacks")}>Comebacks / Rework</button>
         </div>
-        <div className="table">
-          <div className="row header">
-            <span>Customer</span>
-            <span>Vehicle</span>
-            <span>Job</span>
-            <span>Tech</span>
-            <span>Status</span>
-            <span>Book</span>
-            <span>Actual</span>
-            <span>Eff.</span>
-            <span>QC</span>
-            <span></span>
-          </div>
 
-          {filteredJobs.map((j) => {
-            const eff = efficiency(j);
-            return (
-              <div className="row" key={j.id}>
-                <b>{j.customer}</b>
-                <span>{j.vehicle}</span>
-                <span>{ctx.jobProductsSummary(j)}</span>
-                <span>{ctx.tech(j.technician_id)?.name}</span>
-                <StatusPill status={ctx.status(j.status_id)} />
-                <span>{j.book_hours}</span>
-                <span>{j.actual_hours ?? "—"}</span>
-                <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
-                <span>{j.qc || "N/A"}</span>
-                <div className="rowActions">
-                  <button onClick={() => setEditingJob(j)}>Edit</button>
-                  <button onClick={() => deleteJob(j.id)}>Delete</button>
-                </div>
+        {logTab === "completed" ? (
+          <>
+            <div className="adminActions">
+              <input placeholder="Search customer, vehicle, job, tech..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div className="table">
+              <div className="row header">
+                <span>Customer</span>
+                <span>Vehicle</span>
+                <span>Job</span>
+                <span>Tech</span>
+                <span>Status</span>
+                <span>Book</span>
+                <span>Actual</span>
+                <span>Eff.</span>
+                <span>QC</span>
+                <span></span>
               </div>
-            );
-          })}
-        </div>
+
+              {filteredJobs.map((j) => {
+                const eff = efficiency(j);
+                return (
+                  <div className="row" key={j.id}>
+                    <b>{j.customer}</b>
+                    <span>{j.vehicle}</span>
+                    <span>{ctx.jobProductsSummary(j)}</span>
+                    <span>{ctx.tech(j.technician_id)?.name}</span>
+                    <StatusPill status={ctx.status(j.status_id)} />
+                    <span>{j.book_hours}</span>
+                    <span>{j.actual_hours ?? "—"}</span>
+                    <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
+                    <span>{j.qc || "N/A"}</span>
+                    <div className="rowActions">
+                      <button onClick={() => setEditingJob(j)}>Edit</button>
+                      <button onClick={() => deleteJob(j.id)}>Delete</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <ComebackReworkManager ctx={ctx} reload={reload} access={access} />
+        )}
       </Panel>
     </section>
   );
@@ -2492,8 +2504,15 @@ function deltaClass(value) {
 
 function ComebackReworkManager({ ctx, reload, access }) {
   const completedJobs = (ctx.jobs || []).filter((job) => ctx.isComplete(job.status_id));
+  const PRE_APP = "__pre_app_ticket__";
   const [draft, setDraft] = useState({
-    original_job_id: completedJobs[0]?.id || "",
+    original_job_id: completedJobs[0]?.id || PRE_APP,
+    pre_app_ticket_ref: "",
+    pre_app_customer: "",
+    pre_app_vehicle: "",
+    pre_app_product_summary: "",
+    pre_app_completed_at: "",
+    pre_app_original_technician_id: ctx.technicians[0]?.id || "",
     reason: "",
     rework_technician_id: ctx.technicians[0]?.id || "",
     rework_hours: "",
@@ -2501,44 +2520,86 @@ function ComebackReworkManager({ ctx, reload, access }) {
     notes: "",
   });
 
-  const selectedJob = ctx.jobs.find((job) => job.id === draft.original_job_id);
-  const originalTech = selectedJob ? ctx.tech(selectedJob.technician_id) : null;
+  const isPreApp = draft.original_job_id === PRE_APP;
+  const selectedJob = !isPreApp ? ctx.jobs.find((job) => job.id === draft.original_job_id) : null;
+  const originalTech = isPreApp
+    ? ctx.tech(draft.pre_app_original_technician_id)
+    : selectedJob
+      ? ctx.tech(selectedJob.technician_id)
+      : null;
   const rows = [...(ctx.comebackRework || [])].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
   async function createComeback(e) {
     e.preventDefault();
-    if (!selectedJob) return alert("Select the original completed job.");
+    if (!isPreApp && !selectedJob) return alert("Select the original completed job or choose Pre-App Ticket.");
+    if (isPreApp && !draft.pre_app_customer.trim()) return alert("Enter the pre-app customer name.");
+    if (isPreApp && !draft.pre_app_vehicle.trim()) return alert("Enter the pre-app vehicle.");
+    if (isPreApp && !draft.pre_app_product_summary.trim()) return alert("Enter the pre-app original job / product.");
     if (!draft.reason.trim()) return alert("Enter the comeback / rework reason.");
 
-    const payload = {
-      company_id: ctx.company.id,
-      original_job_id: selectedJob.id,
-      original_technician_id: selectedJob.technician_id || null,
-      rework_technician_id: draft.rework_technician_id || null,
-      customer: selectedJob.customer || "",
-      vehicle: selectedJob.vehicle || "",
-      product_summary: ctx.jobProductsSummary(selectedJob),
-      original_completed_at: selectedJob.production_completed_at || selectedJob.updated_at || null,
-      reason: draft.reason.trim(),
-      rework_hours: draft.rework_hours === "" ? null : Number(draft.rework_hours),
-      status: draft.status || "open",
-      notes: draft.notes || "",
-      created_by_name: access?.fullName || access?.email || access?.role || "Unknown",
-      updated_at: new Date().toISOString(),
-    };
+    const payload = isPreApp
+      ? {
+          company_id: ctx.company.id,
+          original_job_id: null,
+          is_pre_app_ticket: true,
+          pre_app_ticket_ref: draft.pre_app_ticket_ref || null,
+          original_technician_id: draft.pre_app_original_technician_id || null,
+          rework_technician_id: draft.rework_technician_id || null,
+          customer: draft.pre_app_customer.trim(),
+          vehicle: draft.pre_app_vehicle.trim(),
+          product_summary: draft.pre_app_product_summary.trim(),
+          original_completed_at: draft.pre_app_completed_at ? `${draft.pre_app_completed_at}T12:00:00` : null,
+          reason: draft.reason.trim(),
+          rework_hours: draft.rework_hours === "" ? null : Number(draft.rework_hours),
+          status: draft.status || "open",
+          notes: draft.notes || "",
+          created_by_name: access?.fullName || access?.email || access?.role || "Unknown",
+          updated_at: new Date().toISOString(),
+        }
+      : {
+          company_id: ctx.company.id,
+          original_job_id: selectedJob.id,
+          is_pre_app_ticket: false,
+          pre_app_ticket_ref: null,
+          original_technician_id: selectedJob.technician_id || null,
+          rework_technician_id: draft.rework_technician_id || null,
+          customer: selectedJob.customer || "",
+          vehicle: selectedJob.vehicle || "",
+          product_summary: ctx.jobProductsSummary(selectedJob),
+          original_completed_at: selectedJob.production_completed_at || selectedJob.updated_at || null,
+          reason: draft.reason.trim(),
+          rework_hours: draft.rework_hours === "" ? null : Number(draft.rework_hours),
+          status: draft.status || "open",
+          notes: draft.notes || "",
+          created_by_name: access?.fullName || access?.email || access?.role || "Unknown",
+          updated_at: new Date().toISOString(),
+        };
 
     const { data, error } = await supabase.from("comeback_rework").insert(payload).select("id").single();
     if (error) return alert(error.message);
 
     await logAuditEvent(ctx, access, {
-      action: "Comeback created",
+      action: isPreApp ? "Pre-app comeback created" : "Comeback created",
       entityType: "comeback_rework",
       entityId: data?.id,
-      summary: `${selectedJob.vehicle || "Job"} comeback tied to ${originalTech?.name || "original installer"}`,
+      summary: `${payload.vehicle || "Job"} comeback tied to ${originalTech?.name || "original installer"}`,
       metadata: payload,
     });
 
-    setDraft({ original_job_id: completedJobs[0]?.id || "", reason: "", rework_technician_id: ctx.technicians[0]?.id || "", rework_hours: "", status: "open", notes: "" });
+    setDraft({
+      original_job_id: completedJobs[0]?.id || PRE_APP,
+      pre_app_ticket_ref: "",
+      pre_app_customer: "",
+      pre_app_vehicle: "",
+      pre_app_product_summary: "",
+      pre_app_completed_at: "",
+      pre_app_original_technician_id: ctx.technicians[0]?.id || "",
+      reason: "",
+      rework_technician_id: ctx.technicians[0]?.id || "",
+      rework_hours: "",
+      status: "open",
+      notes: "",
+    });
     await reload();
   }
 
@@ -2575,11 +2636,12 @@ function ComebackReworkManager({ ctx, reload, access }) {
   }
 
   return (
-    <Panel title="Comebacks / Rework" chip={`${rows.length}`}>
+    <div className="comebackTabContent">
       <form className="comebackForm" onSubmit={createComeback}>
-        <label>
+        <label className="fullWidth">
           Original completed job
           <select value={draft.original_job_id} onChange={(e) => setDraft({ ...draft, original_job_id: e.target.value })}>
+            <option value={PRE_APP}>Pre-App Ticket / older install</option>
             {completedJobs.map((job) => (
               <option key={job.id} value={job.id}>
                 {job.customer} • {job.vehicle} • {ctx.jobProductsSummary(job)} • {ctx.tech(job.technician_id)?.name || "No tech"}
@@ -2587,9 +2649,42 @@ function ComebackReworkManager({ ctx, reload, access }) {
             ))}
           </select>
         </label>
+
+        {isPreApp && (
+          <>
+            <label>
+              Pre-app ticket / invoice #
+              <input value={draft.pre_app_ticket_ref} onChange={(e) => setDraft({ ...draft, pre_app_ticket_ref: e.target.value })} placeholder="Optional" />
+            </label>
+            <label>
+              Original completed date
+              <input type="date" value={draft.pre_app_completed_at} onChange={(e) => setDraft({ ...draft, pre_app_completed_at: e.target.value })} />
+            </label>
+            <label>
+              Customer
+              <input value={draft.pre_app_customer} onChange={(e) => setDraft({ ...draft, pre_app_customer: e.target.value })} placeholder="Customer name" />
+            </label>
+            <label>
+              Vehicle
+              <input value={draft.pre_app_vehicle} onChange={(e) => setDraft({ ...draft, pre_app_vehicle: e.target.value })} placeholder="Vehicle" />
+            </label>
+            <label className="fullWidth">
+              Original job / product
+              <input value={draft.pre_app_product_summary} onChange={(e) => setDraft({ ...draft, pre_app_product_summary: e.target.value })} placeholder="Lift kit, gooseneck, wiring, cover install..." />
+            </label>
+          </>
+        )}
+
         <label>
           Original installer
-          <input value={originalTech?.name || "—"} readOnly />
+          {isPreApp ? (
+            <select value={draft.pre_app_original_technician_id} onChange={(e) => setDraft({ ...draft, pre_app_original_technician_id: e.target.value })}>
+              <option value="">Unknown / not assigned</option>
+              {ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}
+            </select>
+          ) : (
+            <input value={originalTech?.name || "—"} readOnly />
+          )}
         </label>
         <label>
           Fixed by
@@ -2610,7 +2705,7 @@ function ComebackReworkManager({ ctx, reload, access }) {
           Notes
           <textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
         </label>
-        <button className="primary wide" disabled={!completedJobs.length}>Add Comeback / Rework</button>
+        <button className="primary wide">Add Comeback / Rework</button>
       </form>
 
       <div className="auditList comebackList">
@@ -2621,7 +2716,11 @@ function ComebackReworkManager({ ctx, reload, access }) {
             <div className="auditItem" key={row.id}>
               <div>
                 <b>{row.vehicle || "Vehicle"} • {row.product_summary || "Job"}</b>
-                <span>{row.customer || "Customer"} • caused by {original} • fixed by {fixedBy}</span>
+                <span>
+                  {row.customer || "Customer"} • caused by {original} • fixed by {fixedBy}
+                  {row.is_pre_app_ticket ? " • Pre-App Ticket" : ""}
+                  {row.pre_app_ticket_ref ? ` #${row.pre_app_ticket_ref}` : ""}
+                </span>
                 <small>{row.reason} {row.rework_hours ? `• ${Number(row.rework_hours).toFixed(1)} rework hrs` : ""}</small>
               </div>
               <div className="rowActions">
@@ -2634,7 +2733,7 @@ function ComebackReworkManager({ ctx, reload, access }) {
         })}
         {!rows.length && <p className="muted">No comeback or rework records yet.</p>}
       </div>
-    </Panel>
+    </div>
   );
 }
 
@@ -2677,8 +2776,7 @@ function Admin({ ctx, reload, access }) {
         <ShopHours ctx={ctx} reload={reload} />
       </div>
 
-      <div className="grid two adminOpsGrid">
-        <ComebackReworkManager ctx={ctx} reload={reload} access={access} />
+      <div className="adminOpsGrid">
         <AuditLogPanel ctx={ctx} />
       </div>
     </section>
