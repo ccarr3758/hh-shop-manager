@@ -1,3 +1,4 @@
+// deploy trigger v2.7
 import { useEffect, useState } from "react";
 import LoginPanel from "./components/auth/LoginPanel";
 import ProductionManager from "./legacy/ProductionManager";
