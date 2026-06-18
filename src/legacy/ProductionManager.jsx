@@ -2208,16 +2208,47 @@ function buildMonthlyDevelopmentRows(technicianId, jobs, ctx, monthsBack = 6) {
 function buildSpecialtyDevelopmentRows(technicianId, jobs, ctx) {
   const completed = jobs.filter((job) => job.technician_id === technicianId && ctx.isComplete(job.status_id) && Number(job.actual_hours) > 0);
   const byCategory = new Map();
+
   for (const job of completed) {
-    const product = ctx.product(job.product_id);
-    const category = product ? ctx.category(product.category_id) : null;
-    const name = category?.name || product?.name || "General installs";
-    const current = byCategory.get(name) || { name, jobs: 0, bookHours: 0, actualHours: 0 };
-    current.jobs += 1;
-    current.bookHours += Number(job.book_hours || 0);
-    current.actualHours += Number(job.actual_hours || 0);
-    byCategory.set(name, current);
+    const savedLines = ctx.jobProductLines(job.id);
+    const productLines = savedLines.length
+      ? savedLines
+      : [{
+          product_id: job.product_id,
+          book_hours: job.book_hours,
+          quantity: 1,
+        }];
+
+    const normalizedLines = productLines
+      .filter((line) => line?.product_id)
+      .map((line) => {
+        const product = ctx.product(line.product_id);
+        const lineBookHours = Number(line.book_hours ?? product?.book_hours ?? 0) * Number(line.quantity || 1);
+        return { line, product, lineBookHours };
+      });
+
+    if (!normalizedLines.length) continue;
+
+    const jobBookHours = Number(job.book_hours || 0);
+    const totalLineBookHours = normalizedLines.reduce((sum, line) => sum + Number(line.lineBookHours || 0), 0);
+    const actualHours = Number(job.actual_hours || 0);
+
+    for (const item of normalizedLines) {
+      const category = item.product ? ctx.category(item.product.category_id) : null;
+      const name = category?.name || item.product?.name || "General installs";
+      const lineBookHours = item.lineBookHours || (jobBookHours / normalizedLines.length);
+      const actualShare = totalLineBookHours > 0
+        ? actualHours * (Number(item.lineBookHours || 0) / totalLineBookHours)
+        : actualHours / normalizedLines.length;
+
+      const current = byCategory.get(name) || { name, jobs: 0, bookHours: 0, actualHours: 0 };
+      current.jobs += 1;
+      current.bookHours += Number(lineBookHours || 0);
+      current.actualHours += Number(actualShare || 0);
+      byCategory.set(name, current);
+    }
   }
+
   return [...byCategory.values()]
     .map((row) => {
       const efficiency = row.actualHours ? (row.bookHours / row.actualHours) * 100 : 0;
