@@ -1309,22 +1309,36 @@ function Schedule({ jobs, ctx, selectedDate }) {
 }
 
 
+function getCurrentHelperStartTime() {
+  return shortTime(new Date().toTimeString());
+}
+
 function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) {
   const [helperTechnicianId, setHelperTechnicianId] = useState("");
-  const [helperStartTime, setHelperStartTime] = useState("");
+  const [helperStartTime, setHelperStartTime] = useState(() => getCurrentHelperStartTime());
   const helpers = getHelpersForJob(job, ctx);
 
-  async function handleAddHelper() {
-    await onAddHelper(job, helperTechnicianId, helperStartTime || shortTime(new Date().toTimeString()));
+  useEffect(() => {
+    setHelperStartTime(getCurrentHelperStartTime());
     setHelperTechnicianId("");
-    setHelperStartTime("");
+  }, [job?.id]);
+
+  async function handleAddHelper() {
+    await onAddHelper(job, helperTechnicianId, helperStartTime || getCurrentHelperStartTime());
+    setHelperTechnicianId("");
+    setHelperStartTime(getCurrentHelperStartTime());
+  }
+
+  function handleHelperSelection(e) {
+    setHelperTechnicianId(e.target.value);
+    setHelperStartTime(getCurrentHelperStartTime());
   }
 
   return (
     <div className="helperBox">
       <label>Add assisting technician</label>
       <div className="helperControlsRow">
-        <select value={helperTechnicianId} onChange={(e) => setHelperTechnicianId(e.target.value)}>
+        <select value={helperTechnicianId} onChange={handleHelperSelection}>
           <option value="">Select helper</option>
           {ctx.technicians
             .filter((t) => t.active && t.id !== job.technician_id)
