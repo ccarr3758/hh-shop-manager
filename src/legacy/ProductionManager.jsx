@@ -73,6 +73,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         shopSettings,
         jobs,
         jobProducts,
+        jobHelpersResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -83,6 +84,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchTable("shop_settings", companyId),
         fetchJobs(companyId),
         fetchTable("job_products", companyId),
+        fetchOptionalJobHelpers(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -96,6 +98,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         delayReasons,
         products,
         jobProducts,
+        jobHelpers: jobHelpersResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -139,6 +142,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "job_products", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "job_helpers", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -487,6 +495,84 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
     await reload();
   }
 
+
+  async function rollJobToNextDay(job) {
+    const remainingBookHours = getRemainingBookHoursForRollover(job, ctx);
+    if (remainingBookHours <= 0) return alert("This job does not have any book time left to roll over after today.");
+
+    const nextDate = addDaysIso(job.scheduled_date || selectedDate || todayIso(), 1);
+    const todayBookHours = getBookHoursThatFitToday(job, ctx);
+    const rolledJob = {
+      company_id: job.company_id,
+      customer: job.customer,
+      vehicle: job.vehicle,
+      product_id: job.product_id,
+      technician_id: job.technician_id,
+      status_id: job.status_id,
+      delay_reason_id: job.delay_reason_id || null,
+      start_time: ctx.shopSettings?.shop_open || "08:00",
+      book_hours: remainingBookHours,
+      actual_hours: null,
+      qc: job.qc || "N/A",
+      scheduled_date: nextDate,
+      labor_sold: job.labor_sold || null,
+      notes: `${job.notes || ""}\nRolled over from ${job.scheduled_date || selectedDate || todayIso()}. Original job ${job.book_hours} book hrs; ${remainingBookHours} hrs remaining.`.trim(),
+      outlook_event_id: job.outlook_event_id || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: insertError } = await supabase.from("jobs").insert(rolledJob);
+    if (insertError) return alert(insertError.message);
+
+    const { error: updateError } = await supabase
+      .from("jobs")
+      .update({
+        book_hours: todayBookHours,
+        notes: `${job.notes || ""}\nRolled ${remainingBookHours} hrs to ${nextDate}.`.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+
+    if (updateError) return alert(updateError.message);
+    notifyUser(`Rolled ${job.vehicle || "job"} to ${nextDate}`);
+    await reload();
+  }
+
+  async function addHelperToJob(job, helperTechnicianId, helperStartTime) {
+    if (!helperTechnicianId) return alert("Select a helper technician.");
+    if (!helperStartTime) return alert("Enter helper start time.");
+    if (helperTechnicianId === job.technician_id) return alert("Helper cannot be the lead technician on the same job.");
+
+    const helperBookHours = calculateHelperBookHours(job, helperStartTime, ctx);
+    if (helperBookHours <= 0) return alert("Helper start time is after the remaining book time on this job.");
+
+    const helperRow = {
+      company_id: ctx.company.id,
+      job_id: job.id,
+      technician_id: helperTechnicianId,
+      start_time: helperStartTime,
+      book_hours: helperBookHours,
+      scheduled_date: job.scheduled_date || selectedDate || todayIso(),
+      notes: `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}`,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("job_helpers")
+      .upsert(helperRow, { onConflict: "job_id,technician_id,scheduled_date" });
+
+    if (error) return alert(error.message);
+    notifyUser(`${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)}`);
+    await reload();
+  }
+
+  async function removeHelperFromJob(helperId) {
+    const { error } = await supabase.from("job_helpers").delete().eq("id", helperId);
+    if (error) return alert(error.message);
+    notifyUser("Helper removed");
+    await reload();
+  }
+
   return (
     <section className="mobileApp">
       <header className="mobileAppHeader">
@@ -514,6 +600,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
           const productName = ctx.jobProductsSummary(job);
           const tech = ctx.tech(job.technician_id);
           const status = ctx.status(job.status_id);
+          const projected = getJobProjectedFinish(job, ctx);
 
           return (
             <article className="mobileJob" key={job.id}>
@@ -543,6 +630,10 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
                   <strong>{job.book_hours} hrs</strong>
                 </div>
                 <div>
+                  <span>Finish</span>
+                  <strong>{projected.finishTime}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""}</strong>
+                </div>
+                <div>
                   <span>Customer</span>
                   <strong>{job.customer}</strong>
                 </div>
@@ -557,10 +648,18 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
                 <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button onClick={() => setEditingJob(job)}>Edit</button>
+                <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>
                 <button className="complete" onClick={() => completeJob(job)}>
                   Complete
                 </button>
               </div>
+
+              <HelperControls
+                job={job}
+                ctx={ctx}
+                onAddHelper={addHelperToJob}
+                onRemoveHelper={removeHelperFromJob}
+              />
             </article>
           );
         })}
@@ -710,6 +809,129 @@ function formatMinutesAsTime(totalMinutes) {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function minutesToTime(totalMinutes) {
+  const safeMinutes = Math.max(0, Math.round(Number(totalMinutes || 0)));
+  const h = Math.floor(safeMinutes / 60);
+  const m = safeMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function getShopSchedule(ctx) {
+  return {
+    open: timeStringToMinutes(ctx?.shopSettings?.shop_open || "08:00"),
+    close: timeStringToMinutes(ctx?.shopSettings?.shop_close || "18:00"),
+    lunchStart: timeStringToMinutes(ctx?.shopSettings?.lunch_start || "12:00"),
+    lunchEnd: timeStringToMinutes(ctx?.shopSettings?.lunch_end || "13:00"),
+  };
+}
+
+function isWorkingMinute(minute, schedule) {
+  return (
+    minute >= schedule.open &&
+    minute < schedule.close &&
+    !(minute >= schedule.lunchStart && minute < schedule.lunchEnd)
+  );
+}
+
+function getBookMinutes(job) {
+  return Math.max(0, Math.round(Number(job?.book_hours || 0) * 60));
+}
+
+function addBookMinutesWithinShop(startTime, bookMinutes, ctx) {
+  const schedule = getShopSchedule(ctx);
+  let minute = timeStringToMinutes(startTime || "08:00");
+  let remaining = Math.max(0, Math.round(Number(bookMinutes || 0)));
+  let dayOffset = 0;
+
+  while (remaining > 0) {
+    if (minute >= schedule.close) {
+      dayOffset += 1;
+      minute = schedule.open;
+      continue;
+    }
+
+    if (minute < schedule.open) {
+      minute = schedule.open;
+      continue;
+    }
+
+    if (isWorkingMinute(minute, schedule)) remaining -= 1;
+    minute += 1;
+  }
+
+  return { finishTime: minutesToTime(minute), dayOffset };
+}
+
+function getJobProjectedFinish(job, ctx) {
+  return addBookMinutesWithinShop(job?.start_time || "08:00", getBookMinutes(job), ctx);
+}
+
+function getRemainingBookHoursForRollover(job, ctx) {
+  const schedule = getShopSchedule(ctx);
+  const start = timeStringToMinutes(job?.start_time || "08:00");
+  const totalMinutes = getBookMinutes(job);
+  let usableToday = 0;
+
+  for (let minute = start; minute < schedule.close; minute += 1) {
+    if (isWorkingMinute(minute, schedule)) usableToday += 1;
+  }
+
+  return roundHours(Math.max(0, totalMinutes - usableToday) / 60);
+}
+
+function getBookHoursThatFitToday(job, ctx) {
+  return roundHours(Math.max(0, Number(job?.book_hours || 0) - getRemainingBookHoursForRollover(job, ctx)));
+}
+
+function getPrimaryTechNameForJob(job, ctx) {
+  return ctx.tech(job?.technician_id)?.name || "the lead tech";
+}
+
+function getHelpersForJob(job, ctx) {
+  return (ctx.jobHelpers || []).filter((h) => h.job_id === job?.id);
+}
+
+function getHelperAssignmentForTech(techId, ctx, selectedDate) {
+  return (ctx.jobHelpers || []).find(
+    (h) => h.technician_id === techId && h.scheduled_date === selectedDate
+  );
+}
+
+function calculateHelperBookHours(job, helperStartTime, ctx) {
+  if (!job || !helperStartTime) return 0;
+
+  const projected = getJobProjectedFinish(job, ctx);
+  const schedule = getShopSchedule(ctx);
+  const start = timeStringToMinutes(helperStartTime);
+  const end = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
+  let minutes = 0;
+
+  for (let minute = start; minute < end; minute += 1) {
+    if (isWorkingMinute(minute, schedule)) minutes += 1;
+  }
+
+  return roundHours(minutes / 60);
+}
+
+function buildHelperScheduleJobs(jobs, ctx, selectedDate) {
+  return (ctx.jobHelpers || [])
+    .filter((h) => h.scheduled_date === selectedDate)
+    .map((helper) => {
+      const primaryJob = (ctx.jobs || jobs || []).find((j) => j.id === helper.job_id);
+      if (!primaryJob) return null;
+      return {
+        ...primaryJob,
+        id: `helper-${helper.id}`,
+        technician_id: helper.technician_id,
+        start_time: shortTime(helper.start_time),
+        book_hours: Number(helper.book_hours || 0),
+        helper_assignment: helper,
+        helper_label: `Assisting ${getPrimaryTechNameForJob(primaryJob, ctx)}`,
+      };
+    })
+    .filter(Boolean);
+}
+
 function Schedule({ jobs, ctx, selectedDate }) {
   const activeTechs = ctx.technicians.filter((t) => t.active);
   const shopOpen = ctx.shopSettings?.shop_open || "08:00";
@@ -718,20 +940,28 @@ function Schedule({ jobs, ctx, selectedDate }) {
   const currentMinute = useCurrentMinute();
   const showCurrentTimeLine = selectedDate === todayIso() && isMinuteInsideSchedule(currentMinute, shopOpen, shopClose);
   const currentTimeTop = getScheduleTimeLineTop(currentMinute, shopOpen);
-
-  function timeToMinutes(value) {
-    const [h, m] = shortTime(value).split(":").map(Number);
-    return h * 60 + m;
-  }
+  const helperScheduleJobs = buildHelperScheduleJobs(jobs, ctx, selectedDate);
+  const scheduleJobs = [...jobs, ...helperScheduleJobs];
 
   function jobCoversSlot(job, slotTime) {
     if (!job.start_time || !job.book_hours) return false;
 
-    const slotStart = timeToMinutes(slotTime);
-    const jobStart = timeToMinutes(job.start_time);
-    const jobEnd = jobStart + Number(job.book_hours) * 60;
+    const schedule = getShopSchedule(ctx);
+    const slotStart = timeStringToMinutes(slotTime);
+    const slotEnd = slotStart + 30;
+    let minute = timeStringToMinutes(job.start_time);
+    let counted = 0;
+    const totalBookMinutes = getBookMinutes(job);
 
-    return slotStart >= jobStart && slotStart < jobEnd;
+    while (counted < totalBookMinutes && minute < schedule.close) {
+      if (isWorkingMinute(minute, schedule)) {
+        if (minute >= slotStart && minute < slotEnd) return true;
+        counted += 1;
+      }
+      minute += 1;
+    }
+
+    return false;
   }
 
   function isJobStart(job, slotTime) {
@@ -739,10 +969,11 @@ function Schedule({ jobs, ctx, selectedDate }) {
   }
 
   function jobStatusClass(job) {
-    const finishMinutes = timeToMinutes(job.start_time) + Number(job.book_hours || 0) * 60;
+    const finish = getJobProjectedFinish(job, ctx);
+    const finishMinutes = timeStringToMinutes(finish.finishTime);
     const statusName = ctx.status(job.status_id)?.name || "";
-    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes < currentMinute) return "miniJobOverdue";
-    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes - currentMinute <= 30 && finishMinutes - currentMinute >= 0) return "miniJobFinishingSoon";
+    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes < currentMinute && !finish.dayOffset) return "miniJobOverdue";
+    if (!ctx.isComplete(job.status_id) && selectedDate === todayIso() && finishMinutes - currentMinute <= 30 && finishMinutes - currentMinute >= 0 && !finish.dayOffset) return "miniJobFinishingSoon";
     if (statusName === "QC") return "miniJobQc";
     return "";
   }
@@ -760,19 +991,14 @@ function Schedule({ jobs, ctx, selectedDate }) {
           <div
             className="schedule"
             style={{
-              gridTemplateColumns: `86px repeat(${Math.max(
-                activeTechs.length,
-                1
-              )}, minmax(150px, 1fr))`,
+              gridTemplateColumns: `86px repeat(${Math.max(activeTechs.length, 1)}, minmax(150px, 1fr))`,
               gridAutoRows: "72px",
             }}
           >
             <div className="scheduleHead empty" />
 
             {activeTechs.map((tech) => (
-              <div className="scheduleHead" key={tech.id}>
-                {tech.name}
-              </div>
+              <div className="scheduleHead" key={tech.id}>{tech.name}</div>
             ))}
 
             {times.map((time) => (
@@ -780,7 +1006,7 @@ function Schedule({ jobs, ctx, selectedDate }) {
                 <div className="timeCell">{formatTime(time)}</div>
 
                 {activeTechs.map((tech) => {
-                  const coveringJobs = jobs.filter(
+                  const coveringJobs = scheduleJobs.filter(
                     (j) =>
                       j.technician_id === tech.id &&
                       !ctx.isComplete(j.status_id) &&
@@ -788,39 +1014,26 @@ function Schedule({ jobs, ctx, selectedDate }) {
                   );
 
                   return (
-                    <div
-                      className={`slot ${
-                        coveringJobs.length ? "slotBlocked" : ""
-                      }`}
-                      key={`${tech.id}-${time}`}
-                    >
+                    <div className={`slot ${coveringJobs.length ? "slotBlocked" : ""}`} key={`${tech.id}-${time}`}>
                       {coveringJobs.map((j) => {
                         const product = ctx.product(j.product_id);
-                        const productName = ctx.jobProductsSummary(j);
+                        const productName = j.helper_label || ctx.jobProductsSummary(j);
                         const category = ctx.category(product?.category_id);
                         const status = ctx.status(j.status_id);
+                        const projected = getJobProjectedFinish(j, ctx);
 
                         return (
                           <div
-                            className={`miniJob ${
-                              isJobStart(j, time)
-                                ? "miniJobStart"
-                                : "miniJobContinued"
-                            } ${jobStatusClass(j)}`}
-                            style={{
-                              borderColor: category?.color || "#f97316",
-                            }}
+                            className={`miniJob ${isJobStart(j, time) ? "miniJobStart" : "miniJobContinued"} ${jobStatusClass(j)} ${j.helper_assignment ? "miniJobHelper" : ""}`}
+                            style={{ borderColor: category?.color || "#f97316" }}
                             key={`${j.id}-${time}`}
                           >
                             {isJobStart(j, time) ? (
                               <>
-                                <strong>{productName}</strong>
-                                <br />
-                                <span>{j.vehicle}</span>
-                                <br />
+                                <strong>{productName}</strong><br />
+                                <span>{j.vehicle}</span><br />
                                 <small>
-                                  {shortTime(j.start_time)} • {j.book_hours} hrs •{" "}
-                                  {status?.name}
+                                  {shortTime(j.start_time)} → {projected.finishTime}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""} • {j.book_hours} hrs • {status?.name}
                                 </small>
                               </>
                             ) : (
@@ -838,6 +1051,37 @@ function Schedule({ jobs, ctx, selectedDate }) {
         </div>
       </Panel>
     </section>
+  );
+}
+
+
+function HelperControls({ job, ctx, onAddHelper, onRemoveHelper }) {
+  const [helperTechnicianId, setHelperTechnicianId] = useState("");
+  const [helperStartTime, setHelperStartTime] = useState(shortTime(new Date().toTimeString()));
+  const helpers = getHelpersForJob(job, ctx);
+
+  return (
+    <div className="helperBox">
+      <label>Add assisting technician</label>
+      <div className="helperControlsRow">
+        <select value={helperTechnicianId} onChange={(e) => setHelperTechnicianId(e.target.value)}>
+          <option value="">Select helper</option>
+          {ctx.technicians
+            .filter((t) => t.active && t.id !== job.technician_id)
+            .map((t) => (
+              <option value={t.id} key={t.id}>{t.name}</option>
+            ))}
+        </select>
+        <input type="time" value={helperStartTime} onChange={(e) => setHelperStartTime(e.target.value)} />
+        <button onClick={() => onAddHelper(job, helperTechnicianId, helperStartTime)}>Add Helper</button>
+      </div>
+      {helpers.map((helper) => (
+        <div className="helperLine" key={helper.id}>
+          <span>{ctx.tech(helper.technician_id)?.name || "Helper"} • {shortTime(helper.start_time)} • {helper.book_hours} hrs</span>
+          <button onClick={() => onRemoveHelper(helper.id)}>Remove</button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2618,6 +2862,22 @@ async function fetchTable(table, companyId) {
   return data || [];
 }
 
+
+async function fetchOptionalJobHelpers(companyId) {
+  const { data, error } = await supabase
+    .from("job_helpers")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("job_helpers")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
 async function fetchJobs(companyId) {
   const { data, error } = await supabase
     .from("jobs")
@@ -2699,6 +2959,7 @@ function makeContext(state) {
     jobProductsSummary,
     isComplete,
     laborSold,
+    jobHelpers: state.jobHelpers || [],
   };
 }
 
@@ -2712,6 +2973,7 @@ function emptyState() {
     delayReasons: [],
     products: [],
     jobProducts: [],
+    jobHelpers: [],
     shopSettings: null,
     jobs: [],
   };
@@ -3448,6 +3710,20 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
 
   function getTechCurrentJob(techId) {
     const activeStatusNames = ["In Progress", "Waiting", "QC"];
+    const helperAssignment = getHelperAssignmentForTech(techId, ctx, todayIso());
+    if (helperAssignment) {
+      const primaryJob = (ctx.jobs || jobs).find((j) => j.id === helperAssignment.job_id);
+      if (primaryJob && !ctx.isComplete(primaryJob.status_id)) {
+        return {
+          ...primaryJob,
+          technician_id: techId,
+          start_time: shortTime(helperAssignment.start_time),
+          book_hours: Number(helperAssignment.book_hours || 0),
+          helper_assignment: helperAssignment,
+          helper_label: `Assisting ${getPrimaryTechNameForJob(primaryJob, ctx)}`,
+        };
+      }
+    }
 
     return jobs
       .filter(
@@ -3478,7 +3754,12 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
 
     if (!start || Number.isNaN(start.getTime())) return null;
 
-    return new Date(start.getTime() + Number(job.book_hours) * 60 * 60 * 1000);
+    const projected = getJobProjectedFinish({ ...job, start_time: shortTime(start.toTimeString()) }, ctx);
+    const [fh, fm] = shortTime(projected.finishTime).split(":").map(Number);
+    const finish = new Date(start);
+    finish.setHours(fh, fm, 0, 0);
+    if (projected.dayOffset) finish.setDate(finish.getDate() + projected.dayOffset);
+    return finish;
   }
 
   function getTimeRemaining(finish, hasCurrentJob) {
@@ -3537,7 +3818,7 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
                 ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
                 : ctx.status(currentJob.status_id)?.name
               : "Available";
-            const product = currentJob ? ctx.jobProductsSummary(currentJob) : "Available";
+            const product = currentJob ? currentJob.helper_label || ctx.jobProductsSummary(currentJob) : "Available";
             const nextProduct = nextJob ? ctx.jobProductsSummary(nextJob) : "—";
 
             return (

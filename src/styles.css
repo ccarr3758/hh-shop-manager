@@ -428,3 +428,57 @@ button:not(.primary):not(.sidebarButton) {
   color: #64748b;
   font-weight: 800;
 }
+
+/* Helper / assisting technician controls */
+.helperBox {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d7dce2;
+  border-radius: 12px;
+  background: #f8fafc;
+  display: grid;
+  gap: 8px;
+}
+
+.helperBox label {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+
+.helperControlsRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.helperControlsRow select,
+.helperControlsRow input {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 6px 8px;
+  background: white;
+}
+
+.helperLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.miniJobHelper {
+  background: #ecfeff !important;
+  border-style: dashed;
+}
+
+@media (max-width: 768px) {
+  .helperControlsRow {
+    grid-template-columns: 1fr;
+  }
+}
