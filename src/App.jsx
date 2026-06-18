@@ -1,14 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LoginPanel from "./components/auth/LoginPanel";
 import ProductionManager from "./legacy/ProductionManager";
 import { getCurrentSession, getUserProfile, signOut } from "./services/auth";
 import { supabase } from "./supabaseClient";
+
+
+async function recordAccessLog(profile, session, loggedAccessKeys) {
+  if (!supabase || !profile?.company_id || !session?.user?.id) return;
+
+  const minuteKey = new Date().toISOString().slice(0, 16);
+  const key = `${session.user.id}-${minuteKey}`;
+  if (loggedAccessKeys.current.has(key)) return;
+  loggedAccessKeys.current.add(key);
+
+  const payload = {
+    company_id: profile.company_id,
+    user_id: session.user.id,
+    email: session.user.email || profile.email || null,
+    full_name: profile.full_name || session.user.user_metadata?.full_name || null,
+    role: profile.role || "unknown",
+    accessed_at: new Date().toISOString(),
+    user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+  };
+
+  const { error } = await supabase.from("access_logs").insert(payload);
+  if (error && error.code !== "42P01") console.warn("Access log failed", error.message);
+}
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loggedAccessKeys = useRef(new Set());
 
   async function loadProfile(currentSession) {
     if (!currentSession?.user?.id) {
@@ -32,6 +56,7 @@ export default function App() {
       setError("This user profile is inactive.");
     } else {
       setProfile(data);
+      await recordAccessLog(data, currentSession, loggedAccessKeys);
     }
 
     setLoading(false);

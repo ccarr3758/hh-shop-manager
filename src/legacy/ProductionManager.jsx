@@ -78,7 +78,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         technicianAttendanceResult,
         comebackReworkResult,
         auditLogResult,
-      ] = await Promise.all([
+        accessLogResult,
+      ] = await Promise.all(
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
         fetchTable("categories", companyId),
@@ -92,6 +93,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchOptionalTechnicianAttendance(companyId),
         fetchOptionalComebackRework(companyId),
         fetchOptionalAuditLogs(companyId),
+        fetchOptionalAccessLogs(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -109,6 +111,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         technicianAttendance: technicianAttendanceResult || [],
         comebackRework: comebackReworkResult || [],
         auditLogs: auditLogResult || [],
+        accessLogs: accessLogResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -172,6 +175,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "audit_logs", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "access_logs", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -2882,6 +2890,28 @@ function AuditLogPanel({ ctx }) {
   );
 }
 
+
+function AccessLogPanel({ ctx }) {
+  const rows = [...(ctx.accessLogs || [])].sort((a, b) => String(b.accessed_at || b.created_at || "").localeCompare(String(a.accessed_at || a.created_at || ""))).slice(0, 250);
+  return (
+    <Panel title="Login / Access Log" chip={`${rows.length}`}>
+      <div className="auditList">
+        {rows.map((row) => (
+          <div className="auditItem" key={row.id}>
+            <div>
+              <b>{row.full_name || row.email || "Unknown User"}</b>
+              <span>{row.email || "No email"}</span>
+              <small>{formatDateTime(row.accessed_at || row.created_at)} • {String(row.role || "").replace("_", " ") || "unknown role"}</small>
+            </div>
+            <span className="auditType">login</span>
+          </div>
+        ))}
+        {!rows.length && <p className="muted">No login/access records yet.</p>}
+      </div>
+    </Panel>
+  );
+}
+
 function Admin({ ctx, reload, access }) {
   return (
     <section className="page">
@@ -2902,6 +2932,7 @@ function Admin({ ctx, reload, access }) {
 
       <div className="adminOpsGrid">
         <AuditLogPanel ctx={ctx} />
+        <AccessLogPanel ctx={ctx} />
       </div>
     </section>
   );
@@ -4207,6 +4238,23 @@ async function fetchOptionalAuditLogs(companyId) {
   return data || [];
 }
 
+
+async function fetchOptionalAccessLogs(companyId) {
+  const { data, error } = await supabase
+    .from("access_logs")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("accessed_at", { ascending: false })
+    .limit(250);
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("access_logs")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
 async function logAuditEvent(ctx, access, { action, entityType, entityId, summary, metadata = {} }) {
   if (!supabase || !ctx?.company?.id) return;
 
@@ -4332,6 +4380,7 @@ function makeContext(state) {
     technicianAttendance: state.technicianAttendance || [],
     comebackRework: state.comebackRework || [],
     auditLogs: state.auditLogs || [],
+    accessLogs: state.accessLogs || [],
   };
 }
 
@@ -4349,6 +4398,7 @@ function emptyState() {
     technicianAttendance: [],
     comebackRework: [],
     auditLogs: [],
+    accessLogs: [],
     shopSettings: null,
     jobs: [],
   };
