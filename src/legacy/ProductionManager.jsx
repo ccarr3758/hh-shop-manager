@@ -2508,31 +2508,82 @@ function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
   };
 }
 
+function getJobProductPerformanceEntries(job, ctx) {
+  const savedLines = ctx.jobProductLines(job.id);
+  const productLines = savedLines.length
+    ? savedLines
+    : [{
+        product_id: job.product_id,
+        book_hours: job.book_hours,
+        quantity: 1,
+      }];
+
+  const normalizedLines = productLines
+    .filter((line) => line?.product_id)
+    .map((line) => {
+      const product = ctx.product(line.product_id);
+      const quantity = Number(line.quantity || 1);
+      const unitBookHours = Number(line.book_hours ?? product?.book_hours ?? 0);
+      const lineBookHours = unitBookHours * quantity;
+
+      return {
+        productId: line.product_id,
+        productName: product?.name || "Unknown Product",
+        productBookHours: Number(product?.book_hours ?? unitBookHours ?? 0),
+        lineBookHours,
+      };
+    });
+
+  if (!normalizedLines.length) return [];
+
+  const actualHours = Number(job.actual_hours || 0);
+  const totalLineBookHours = normalizedLines.reduce((sum, line) => sum + Number(line.lineBookHours || 0), 0);
+
+  return normalizedLines.map((line) => {
+    const actualShare = totalLineBookHours > 0
+      ? actualHours * (Number(line.lineBookHours || 0) / totalLineBookHours)
+      : actualHours / normalizedLines.length;
+
+    return {
+      ...line,
+      jobId: job.id,
+      technicianId: job.technician_id,
+      actualHours: Number(actualShare || 0),
+      completedAt: job.completed_at || job.updated_at || job.created_at,
+    };
+  });
+}
+
 function buildProductPerformanceRows(jobs, ctx, technicianId = null) {
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
+  const entries = completed.flatMap((job) => getJobProductPerformanceEntries(job, ctx));
 
   return ctx.products.map((product) => {
-    const productJobs = completed.filter((j) => j.product_id === product.id);
-    const techJobs = technicianId ? productJobs.filter((j) => j.technician_id === technicianId) : productJobs;
+    const productEntries = entries.filter((entry) => entry.productId === product.id);
+    const techEntries = technicianId
+      ? productEntries.filter((entry) => entry.technicianId === technicianId)
+      : productEntries;
 
-    const shopAvg = avg(productJobs.map((j) => Number(j.actual_hours)));
-    const techAvg = avg(techJobs.map((j) => Number(j.actual_hours)));
-    const bestTime = minOrNull(techJobs.map((j) => Number(j.actual_hours)));
-    const lastJob = [...techJobs].sort(
-      (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
+    const shopAvg = avg(productEntries.map((entry) => Number(entry.actualHours)));
+    const techAvg = avg(techEntries.map((entry) => Number(entry.actualHours)));
+    const bestTime = minOrNull(techEntries.map((entry) => Number(entry.actualHours)));
+    const lastEntry = [...techEntries].sort(
+      (a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0)
     )[0];
+
+    const bookHours = Number(product.book_hours || 0);
 
     return {
       productId: product.id,
       productName: product.name,
-      bookHours: Number(product.book_hours || 0),
-      jobs: techJobs.length,
+      bookHours,
+      jobs: techEntries.length,
       techAvg,
       shopAvg,
-      vsBook: techAvg === null ? null : Number(product.book_hours || 0) - techAvg,
+      vsBook: techAvg === null ? null : bookHours - techAvg,
       vsShop: techAvg === null || shopAvg === null ? null : shopAvg - techAvg,
       bestTime,
-      lastActual: lastJob ? Number(lastJob.actual_hours) : null,
+      lastActual: lastEntry ? Number(lastEntry.actualHours) : null,
     };
   });
 }
