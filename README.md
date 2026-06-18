@@ -1,36 +1,23 @@
-# H&H Production Manager — Supabase Live Build
+# H&H Shop Manager
 
-This build connects directly to your Supabase database using the Vercel environment variables you saved.
+Clean redeploy project snapshot.
 
-Required Vercel Environment Variables:
-- VITE_SUPABASE_URL
-- VITE_SUPABASE_ANON_KEY
+Recent updates included:
+- Lunch-aware scheduling
+- Job rollover
+- Helper technician assignments
+- End Help / Remove helper lifecycle
+- Technician clock-in availability
+- Helper performance metrics
+- Helper hours breakdown
+- Helper 110% cap fix
 
-Deploy settings:
-- Framework: Vite
-- Install command: npm install
-- Build command: npm run build
-- Output directory: dist
+## Helper 110% Cap Rule
 
-Cloud features included:
-- Dashboard reads Supabase jobs
-- New Job writes to Supabase
-- Foreman status/complete actions write to Supabase
-- Production Log deletes from Supabase
-- Products add/edit/delete in Supabase
-- Admin add/edit/delete for technicians, categories, statuses, delay reasons, labor rates
-- Shop hours save to Supabase
-- Basic realtime refresh on job/product/technician changes
+Helper Actual Hours = real time spent helping.
 
+Helper Book Credit = Helper Actual Hours × 1.10.
 
-## Helper over-book update
-Helpers can now be assigned even after a job has exceeded book time. When help is ended, helper book hours equal actual helper working time, so the helper receives 100% efficiency credit.
+Helper credit is capped at 110% and does not compound based on remaining job book time or over-book status.
 
-
-## Helper over-book credit
-Helpers can now be assigned even after the lead job is past book time. Actual helper time is stored in `actual_hours`; credited helper time is stored in `book_hours`. Any helper time after the lead job's projected book finish is credited at 110% efficiency.
-
-
-## Helper hours breakdown
-
-Technician performance now separates primary book hours, helper book hours, total book hours, hours helped, and help received. Helper hours add to book/actual performance totals but do not increase job count.
+Older helper records with excessive stored book hours are capped in performance reporting using actual_hours × 1.10.

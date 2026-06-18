@@ -579,8 +579,8 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       scheduled_date: job.scheduled_date || selectedDate || todayIso(),
       actual_hours: null,
       notes: overBook
-        ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit will be 110% efficiency for time after book time has expired.`
-        : `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}`,
+        ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 110% of actual helper time.`
+        : `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}. Helper credit is capped at 110% of actual helper time.`,
       updated_at: new Date().toISOString(),
     };
 
@@ -989,26 +989,11 @@ function isJobPastBookTime(job, ctx) {
 }
 
 function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
-  if (!job || !helperStartTime || !helperEndTime) return 0;
-
-  const projected = getJobProjectedFinish(job, ctx);
-  const schedule = getShopSchedule(ctx);
-  const start = timeStringToMinutes(helperStartTime);
-  const requestedEnd = Math.min(timeStringToMinutes(helperEndTime), schedule.close);
-  const bookFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
-
-  if (requestedEnd <= start) return 0;
-
-  let creditedMinutes = 0;
-  for (let minute = start; minute < requestedEnd; minute += 1) {
-    if (!isWorkingMinute(minute, schedule)) continue;
-
-    // Normal helper credit before the lead job's book time expires.
-    // Any helper time after book time has expired is credited at 110% efficiency.
-    creditedMinutes += minute >= bookFinish ? 1.1 : 1;
-  }
-
-  return roundHours(creditedMinutes / 60);
+  // Helper credit is intentionally capped as its own 110% efficiency bucket.
+  // It is NOT based on remaining job book time and it does NOT compound.
+  // Formula: helper book credit = actual helper time × 1.10.
+  const actualHours = calculateWorkingHoursBetween(helperStartTime, helperEndTime, ctx);
+  return roundHours(actualHours * 1.1);
 }
 
 function calculateHelperBookHours(job, helperStartTime, ctx) {
@@ -1020,9 +1005,8 @@ function calculateHelperBookHours(job, helperStartTime, ctx) {
   const helperStart = timeStringToMinutes(helperStartTime);
   const projectedFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
 
-  // If the job is still inside book time and the helper starts before projected finish,
-  // estimate helper credit through the projected finish. If the job is already over book
-  // time, show live 110% credited time from helper start to now.
+  // Active helper estimate: show 110% capped helper credit from helper start to either
+  // projected finish or current time if the job has already passed book time.
   const liveEnd = Math.min(timeStringToMinutes(nowTime), schedule.close);
   const endMinute = projectedFinish > helperStart ? projectedFinish : liveEnd;
 
@@ -1031,7 +1015,7 @@ function calculateHelperBookHours(job, helperStartTime, ctx) {
 
 function getHelperDisplayHours(helper, job, ctx) {
   if (!helper) return 0;
-  if (!isActiveHelper(helper)) return Number(helper.book_hours || 0);
+  if (!isActiveHelper(helper)) return getCappedHelperBookHours(helper);
   return calculateHelperBookHours(job, helper.start_time, ctx);
 }
 
@@ -1818,6 +1802,21 @@ function getTechStats(jobs, ctx, technicianId, options = {}) {
   };
 }
 
+function getCappedHelperActualHours(helper) {
+  return Number(helper?.actual_hours || 0);
+}
+
+function getCappedHelperBookHours(helper) {
+  const actual = getCappedHelperActualHours(helper);
+  const storedBook = Number(helper?.book_hours || 0);
+  const cappedBook = roundHours(actual * 1.1);
+
+  // Use the capped value for any ended helper record with actual hours.
+  // This protects performance reports from older over-credit records.
+  if (actual > 0) return Math.min(storedBook || cappedBook, cappedBook);
+  return storedBook;
+}
+
 function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
   const helpers = (ctx.jobHelpers || []).filter((helper) => {
     if (technicianId && helper.technician_id !== technicianId) return false;
@@ -1842,8 +1841,8 @@ function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
 
   return {
     assignments: helpers.length,
-    bookHours: helpers.reduce((sum, helper) => sum + Number(helper.book_hours || 0), 0),
-    actualHours: helpers.reduce((sum, helper) => sum + Number(helper.actual_hours || 0), 0),
+    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper), 0)),
+    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper), 0)),
     receivedAssignments: receivedStats.assignments,
     receivedBookHours: receivedStats.bookHours,
     receivedActualHours: receivedStats.actualHours,
@@ -1875,8 +1874,8 @@ function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
 
   return {
     assignments: helpers.length,
-    bookHours: helpers.reduce((sum, helper) => sum + Number(helper.book_hours || 0), 0),
-    actualHours: helpers.reduce((sum, helper) => sum + Number(helper.actual_hours || 0), 0),
+    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper), 0)),
+    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper), 0)),
   };
 }
 
