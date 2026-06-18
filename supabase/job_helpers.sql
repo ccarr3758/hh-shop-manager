@@ -76,6 +76,6 @@ add column if not exists ended_at timestamptz null;
 
 -- When a helper is ended, actual_hours stores real working time.
 -- book_hours stores credited time.
--- Time helped after the lead job is over book time is credited at 110% efficiency.
+-- Core performance counts helper time at 100%. Helper Curve gives a small separate bonus, capped in the app.
 
 create index if not exists idx_job_helpers_active_status on job_helpers(status, scheduled_date);

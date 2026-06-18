@@ -1811,18 +1811,40 @@ function getTechStats(jobs, ctx, technicianId, options = {}) {
   };
 }
 
-function getCappedHelperActualHours(helper) {
-  return Number(helper?.actual_hours || 0);
+function getHelperActualHoursForStats(helper, ctx) {
+  if (!helper) return 0;
+
+  const storedActual = Number(helper.actual_hours || 0);
+  if (storedActual > 0) return roundHours(storedActual);
+
+  if (helper.end_time) {
+    return calculateWorkingHoursBetween(helper.start_time, helper.end_time, ctx);
+  }
+
+  // Active helpers should still show contribution on dashboards.
+  // This prevents a foreman/manager who is helping but has no assigned primary jobs
+  // from showing 0% while they are actively assisting.
+  if (isActiveHelper(helper) && helper.scheduled_date === todayIso()) {
+    return calculateWorkingHoursBetween(helper.start_time, shortTime(new Date().toTimeString()), ctx);
+  }
+
+  return 0;
 }
 
-function getCappedHelperBookHours(helper) {
-  const actual = getCappedHelperActualHours(helper);
-  const storedBook = Number(helper?.book_hours || 0);
+function getHelperBookHoursForStats(helper, ctx) {
+  // Core performance counts helper work at 100%: 1.0 helped hour = 1.0 book hour.
+  // The incentive is handled separately through Helper Curve, so helper time cannot
+  // inflate a technician to unrealistic efficiency.
+  return getHelperActualHoursForStats(helper, ctx);
+}
 
-  // Core performance uses helper time at 100% so it cannot inflate efficiency.
-  // Older helper rows may have over-credited book hours, so cap them back to actual time.
-  if (actual > 0) return Math.min(storedBook || actual, actual);
-  return storedBook;
+// Backward-compatible wrappers used by older UI sections.
+function getCappedHelperActualHours(helper, ctx) {
+  return getHelperActualHoursForStats(helper, ctx);
+}
+
+function getCappedHelperBookHours(helper, ctx) {
+  return getHelperBookHoursForStats(helper, ctx);
 }
 
 function getHelperCurveBonusPercent(helperActualHours) {
@@ -1834,8 +1856,9 @@ function getHelperCurveBonusPercent(helperActualHours) {
 function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
   const helpers = (ctx.jobHelpers || []).filter((helper) => {
     if (technicianId && helper.technician_id !== technicianId) return false;
-    if (!Number(helper.actual_hours) && !helper.end_time) return false;
-    if ((helper.status || "ended") === "active" && !helper.end_time) return false;
+    const hasRecordedTime = Number(helper.actual_hours) > 0 || Boolean(helper.end_time);
+    const hasLiveTime = isActiveHelper(helper) && helper.scheduled_date === todayIso();
+    if (!hasRecordedTime && !hasLiveTime) return false;
 
     if (options.selectedDate && helper.scheduled_date !== options.selectedDate) return false;
 
@@ -1855,8 +1878,8 @@ function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
 
   return {
     assignments: helpers.length,
-    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper), 0)),
-    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper), 0)),
+    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper, ctx), 0)),
+    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper, ctx), 0)),
     receivedAssignments: receivedStats.assignments,
     receivedBookHours: receivedStats.bookHours,
     receivedActualHours: receivedStats.actualHours,
@@ -1865,8 +1888,9 @@ function getHelperPerformanceStats(ctx, technicianId = null, options = {}) {
 
 function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
   const helpers = (ctx.jobHelpers || []).filter((helper) => {
-    if (!Number(helper.actual_hours) && !helper.end_time) return false;
-    if ((helper.status || "ended") === "active" && !helper.end_time) return false;
+    const hasRecordedTime = Number(helper.actual_hours) > 0 || Boolean(helper.end_time);
+    const hasLiveTime = isActiveHelper(helper) && helper.scheduled_date === todayIso();
+    if (!hasRecordedTime && !hasLiveTime) return false;
 
     const primaryJob = (ctx.jobs || []).find((job) => job.id === helper.job_id);
     if (!primaryJob) return false;
@@ -1888,8 +1912,8 @@ function getHelpReceivedStats(ctx, technicianId = null, options = {}) {
 
   return {
     assignments: helpers.length,
-    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper), 0)),
-    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper), 0)),
+    bookHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperBookHours(helper, ctx), 0)),
+    actualHours: roundHours(helpers.reduce((sum, helper) => sum + getCappedHelperActualHours(helper, ctx), 0)),
   };
 }
 

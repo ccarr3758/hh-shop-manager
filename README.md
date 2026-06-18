@@ -23,11 +23,6 @@ Helper credit is capped at 110% and does not compound based on remaining job boo
 Older helper records with excessive stored book hours are capped in performance reporting using actual_hours × 1.10.
 
 
-## Helper Curve Fix
+## Helper-Only Performance Fix
 
-Latest update changes helper performance so helper time acts as a small positive curve instead of a multiplier:
-
-- Helper book hours are capped at 100% of helper actual hours.
-- Helper curve bonus is +0.5 efficiency point per hour helped.
-- Helper curve bonus is capped at +5.0 percentage points.
-- This prevents short helper assignments from creating extreme efficiency values like 344%.
+Technicians with no primary completed jobs but with helper hours now show helper contribution instead of sitting at 0%. Helper hours count at 100% in core performance, with a small separate Helper Curve bonus capped at +5%. Active helper time for today is included live.
