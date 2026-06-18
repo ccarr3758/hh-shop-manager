@@ -4286,6 +4286,7 @@ async function fetchJobs(companyId) {
 
 function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const helperStats = getHelperPerformanceStats(ctx, null, { selectedDate });
   const receivedStats = getHelpReceivedStats(ctx, null, { selectedDate });
   const jobBookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
@@ -4294,18 +4295,18 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const actualUsed = jobActualUsed + helperStats.actualHours;
   const helperCurveBonus = getHelperCurveBonusPercent(helperStats.actualHours);
   const baseEfficiency = actualUsed ? (bookComplete / actualUsed) * 100 : 0;
-  const clockedInTechs = getClockedInTechnicians(ctx, selectedDate);
-  const availableTechCount = clockedInTechs.length || 1;
+  const availableTechCount = getCapacityTechnicianCount(ctx, selectedDate);
+  const remainingBookHours = openJobs.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const activeHelperBookHours = (ctx.jobHelpers || []).reduce((sum, helper) => {
+    if (helper.scheduled_date !== selectedDate || !isActiveHelper(helper)) return sum;
+    return sum + getCappedHelperBookHours(helper, ctx);
+  }, 0);
+  const capacityHours = availableTechCount * 8;
 
   return {
-    capacity: Math.min(
-      100,
-      Math.round(
-        ((jobs.reduce((a, j) => a + Number(j.book_hours || 0), 0) + helperStats.bookHours) /
-          (availableTechCount * 8 || 1)) *
-          100
-      )
-    ),
+    capacity: capacityHours
+      ? Math.min(100, Math.round(((remainingBookHours + activeHelperBookHours) / capacityHours) * 100))
+      : 0,
     efficiency: baseEfficiency ? baseEfficiency + helperCurveBonus : 0,
     baseEfficiency,
     helperCurveBonus,
@@ -4406,6 +4407,20 @@ function emptyState() {
 
 function getClockedInTechnicians(ctx, selectedDate = todayIso()) {
   return (ctx.technicians || []).filter((tech) => tech.active && ctx.isTechClockedIn?.(tech.id, selectedDate));
+}
+
+function getProductionTechnicians(ctx) {
+  return (ctx.technicians || []).filter((tech) => {
+    if (!tech.active) return false;
+    const role = normalizeRole(tech.role);
+    return role === "technician";
+  });
+}
+
+function getCapacityTechnicianCount(ctx, selectedDate = todayIso()) {
+  const clockedInCount = getClockedInTechnicians(ctx, selectedDate).length;
+  if (clockedInCount > 0) return clockedInCount;
+  return getProductionTechnicians(ctx).length || 1;
 }
 
 function getTechAttendanceStatus(ctx, technicianId, selectedDate = todayIso()) {
