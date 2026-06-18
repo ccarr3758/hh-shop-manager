@@ -34,3 +34,12 @@ Start buttons now stamp `production_started_at`. Before a job is started, the sc
 
 ## Latest UI Update
 - Mobile Manager now displays user-facing times in AM/PM format instead of military time.
+
+
+## v3.0.1 Manager View UI
+
+- Compact bottom navigation
+- Larger technician name
+- Prominent Book Time
+- Live Time Remaining / Over By display
+- Thin actual-start progress bar

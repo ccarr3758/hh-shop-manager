@@ -406,7 +406,7 @@ function MobileStyles() {
         html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; }
         body { background: #070d1c; }
         .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
-        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 92px !important; margin: 0 !important; }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 74px !important; margin: 0 !important; }
         .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
         .phoneDatePicker { margin-top: 6px; height: 34px; border: 0; border-radius: 10px; padding: 0 10px; font-weight: 900; color: #0f172a; background: #f8fafc; }
@@ -425,6 +425,17 @@ function MobileStyles() {
         .mobileJob { border-radius: 18px !important; padding: 14px !important; background: #f8fafc !important; border: 1px solid rgba(255,255,255,.08) !important; box-shadow: 0 12px 28px rgba(0,0,0,.24); }
         .mobileJobTop { align-items: center; margin-bottom: 10px !important; }
         .mobileJobTop b { font-size: 11px !important; letter-spacing: .04em; text-transform: uppercase; color: #0f172a; }
+        .mobileTechName { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 6px; padding: 8px 10px; border-radius: 12px; background: #fff7ed; color: #9a3412; font-size: 18px; font-weight: 1000; letter-spacing: .02em; }
+        .mobileBookCard { background: #111827 !important; color: white !important; border: 1px solid rgba(15,23,42,.16); }
+        .mobileBookCard span { color: #fed7aa !important; }
+        .mobileBookCard strong { color: white !important; font-size: 24px !important; }
+        .mobileRemainingCard strong.remainingOk { color: #166534 !important; }
+        .mobileRemainingCard strong.remainingOver { color: #dc2626 !important; }
+        .mobileProgressTrack { width: 100%; height: 7px; overflow: hidden; border-radius: 999px; background: #e2e8f0; margin: 10px 0 12px; }
+        .mobileProgressFill { height: 100%; width: 0%; border-radius: inherit; background: #94a3b8; transition: width .25s ease; }
+        .mobileProgressFill.onTrack { background: #16a34a; }
+        .mobileProgressFill.nearLimit { background: #f97316; }
+        .mobileProgressFill.overBook { background: #dc2626; }
         .mobilePill { padding: 5px 9px !important; border-radius: 999px !important; font-size: 10px !important; font-weight: 900; }
         .mobileJob h2 { font-size: 23px !important; line-height: 1.05; margin: 0 !important; color: #0f172a; }
         .mobileJob > p { margin: 4px 0 12px !important; font-size: 15px !important; font-weight: 800; color: #64748b !important; }
@@ -435,10 +446,12 @@ function MobileStyles() {
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
-        .phoneBottomNav { position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 100; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 8px; border-radius: 22px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 16px 38px rgba(0,0,0,.38); }
-        .phoneBottomNav button { height: 58px; border: 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 900; }
+        .phoneBottomNav { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 100; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; padding: 5px; border-radius: 18px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 14px 30px rgba(0,0,0,.34); }
+        .phoneBottomNav button { height: 48px; min-width: 0; border: 0; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: transparent; color: #94a3b8; font-size: 9px; font-weight: 900; padding: 0 2px; }
+        .phoneBottomNav button svg { width: 17px; height: 17px; }
+        .phoneBottomNav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .phoneBottomNav button.active { background: #f97316; color: white; }
-        .phoneFab { position: fixed; right: 18px; bottom: 92px; z-index: 110; width: 60px; height: 60px; border-radius: 20px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 14px 30px rgba(249,115,22,.42); }
+        .phoneFab { position: fixed; right: 18px; bottom: 78px; z-index: 110; width: 56px; height: 56px; border-radius: 20px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 14px 30px rgba(249,115,22,.42); }
         .page { padding: 10px !important; }
         .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
         .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
@@ -458,6 +471,7 @@ function MobileStyles() {
 
 function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
   const [filter, setFilter] = useState("Open");
+  const currentMinute = useCurrentMinute();
 
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const shownJobs =
@@ -650,6 +664,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
           const tech = ctx.tech(job.technician_id);
           const status = ctx.status(job.status_id);
           const projected = getJobProjectedFinish(job, ctx);
+          const timing = getMobileJobTiming(job, ctx, currentMinute);
 
           return (
             <article className="mobileJob" key={job.id}>
@@ -667,20 +682,32 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
               </div>
 
               <h2>{job.vehicle}</h2>
+              <div className="mobileTechName">👤 {tech?.name || "Unassigned"}</div>
               <p>{productName}</p>
+
+              <div className="mobileProgressTrack" aria-label="Job progress">
+                <div
+                  className={`mobileProgressFill ${timing.progressClass}`}
+                  style={{ width: `${timing.progressPercent}%` }}
+                />
+              </div>
 
               <div className="mobileMetaGrid">
                 <div>
                   <span>Start</span>
                   <strong>{getEffectiveJobStartLabel(job)}</strong>
                 </div>
-                <div>
-                  <span>Book</span>
-                  <strong>{job.book_hours} hrs</strong>
+                <div className="mobileBookCard">
+                  <span>Book Time</span>
+                  <strong>{Number(job.book_hours || 0).toFixed(1)} hr{Number(job.book_hours || 0) === 1 ? "" : "s"}</strong>
                 </div>
                 <div>
                   <span>Finish</span>
                   <strong>{formatTime(projected.finishTime)}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""}</strong>
+                </div>
+                <div className="mobileRemainingCard">
+                  <span>Time Remaining</span>
+                  <strong className={timing.isOver ? "remainingOver" : "remainingOk"}>{timing.remainingLabel}</strong>
                 </div>
                 <div>
                   <span>Customer</span>
@@ -986,6 +1013,46 @@ function isJobPastBookTime(job, ctx) {
   const projected = getJobProjectedFinish(job, ctx);
   if (projected.dayOffset > 0) return false;
   return timeStringToMinutes(shortTime(new Date().toTimeString())) >= timeStringToMinutes(projected.finishTime);
+}
+
+function formatDurationFromMinutes(minutes) {
+  const safe = Math.max(0, Math.round(Number(minutes || 0)));
+  const hrs = Math.floor(safe / 60);
+  const mins = safe % 60;
+  if (hrs <= 0) return `${mins} min`;
+  if (mins === 0) return `${hrs} hr${hrs === 1 ? "" : "s"}`;
+  return `${hrs} hr ${mins} min`;
+}
+
+function getMobileJobTiming(job, ctx, currentMinute = getCurrentMinuteOfDay()) {
+  const projected = getJobProjectedFinish(job, ctx);
+  const startedAt = getJobStartedAt(job);
+  const startMinute = timeStringToMinutes(getEffectiveJobStartTime(job));
+  const finishMinute = projected.dayOffset > 0 ? getShopSchedule(ctx).close : timeStringToMinutes(projected.finishTime);
+  const totalMinutes = Math.max(1, finishMinute - startMinute);
+
+  if (!startedAt) {
+    return {
+      remainingLabel: `Starts at ${formatTime(job?.start_time || "08:00")}`,
+      isOver: false,
+      progressPercent: 0,
+      progressClass: "scheduled",
+    };
+  }
+
+  const rawRemaining = finishMinute - currentMinute;
+  const elapsed = Math.max(0, currentMinute - startMinute);
+  const progressPercent = Math.min(100, Math.max(0, (elapsed / totalMinutes) * 100));
+  const isOver = rawRemaining < 0 && projected.dayOffset === 0;
+
+  return {
+    remainingLabel: isOver
+      ? `Over by ${formatDurationFromMinutes(Math.abs(rawRemaining))}`
+      : `${formatDurationFromMinutes(rawRemaining)} remaining`,
+    isOver,
+    progressPercent: isOver ? 100 : progressPercent,
+    progressClass: isOver ? "overBook" : progressPercent >= 85 ? "nearLimit" : "onTrack",
+  };
 }
 
 function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
