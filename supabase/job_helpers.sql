@@ -70,7 +70,12 @@ using (
 -- End Help freezes credited hours. Remove deletes the row and credits nothing.
 alter table job_helpers
 add column if not exists end_time time null,
+add column if not exists actual_hours numeric null,
 add column if not exists status text not null default 'active',
 add column if not exists ended_at timestamptz null;
+
+-- When a helper is ended, actual_hours stores real working time.
+-- book_hours stores credited time.
+-- Time helped after the lead job is over book time is credited at 110% efficiency.
 
 create index if not exists idx_job_helpers_active_status on job_helpers(status, scheduled_date);

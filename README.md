@@ -21,3 +21,11 @@ Cloud features included:
 - Admin add/edit/delete for technicians, categories, statuses, delay reasons, labor rates
 - Shop hours save to Supabase
 - Basic realtime refresh on job/product/technician changes
+
+
+## Helper over-book update
+Helpers can now be assigned even after a job has exceeded book time. When help is ended, helper book hours equal actual helper working time, so the helper receives 100% efficiency credit.
+
+
+## Helper over-book credit
+Helpers can now be assigned even after the lead job is past book time. Actual helper time is stored in `actual_hours`; credited helper time is stored in `book_hours`. Any helper time after the lead job's projected book finish is credited at 110% efficiency.

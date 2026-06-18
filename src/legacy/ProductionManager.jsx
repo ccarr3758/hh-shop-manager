@@ -565,7 +565,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
     if (helperTechnicianId === job.technician_id) return alert("Helper cannot be the lead technician on the same job.");
 
     const helperBookHours = calculateHelperBookHours(job, helperStartTime, ctx);
-    if (helperBookHours <= 0) return alert("Helper start time is after the remaining book time on this job.");
+    const overBook = isJobPastBookTime(job, ctx);
 
     const helperRow = {
       company_id: ctx.company.id,
@@ -577,7 +577,10 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       end_time: null,
       ended_at: null,
       scheduled_date: job.scheduled_date || selectedDate || todayIso(),
-      notes: `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}`,
+      actual_hours: null,
+      notes: overBook
+        ? `Assisting ${getPrimaryTechNameForJob(job, ctx)} after book time on ${job.vehicle || job.customer || "job"}. Helper credit will be 110% efficiency for time after book time has expired.`
+        : `Assisting ${getPrimaryTechNameForJob(job, ctx)} on ${job.vehicle || job.customer || "job"}`,
       updated_at: new Date().toISOString(),
     };
 
@@ -592,6 +595,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
 
   async function endHelperOnJob(helper, job) {
     const endTime = shortTime(new Date().toTimeString());
+    const actualHours = calculateWorkingHoursBetween(helper.start_time, endTime, ctx);
     const creditedHours = calculateHelperCreditedHours(job, helper.start_time, endTime, ctx);
 
     const { error } = await supabase
@@ -599,6 +603,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .update({
         end_time: endTime,
         book_hours: creditedHours,
+        actual_hours: actualHours,
         status: "ended",
         ended_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -606,7 +611,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .eq("id", helper.id);
 
     if (error) return alert(error.message);
-    notifyUser(`${ctx.tech(helper.technician_id)?.name || "Helper"} ended help with ${creditedHours} credited hrs`);
+    notifyUser(`${ctx.tech(helper.technician_id)?.name || "Helper"} ended help with ${creditedHours} credited hrs (${actualHours} actual hrs)`);
     await reload();
   }
 
@@ -946,15 +951,13 @@ function getHelperAssignmentForTech(techId, ctx, selectedDate) {
   );
 }
 
-function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
-  if (!job || !helperStartTime || !helperEndTime) return 0;
+function calculateWorkingHoursBetween(startTime, endTime, ctx) {
+  if (!startTime || !endTime) return 0;
 
-  const projected = getJobProjectedFinish(job, ctx);
   const schedule = getShopSchedule(ctx);
-  const start = timeStringToMinutes(helperStartTime);
-  const requestedEnd = timeStringToMinutes(helperEndTime);
-  const jobFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
-  const end = Math.min(requestedEnd, jobFinish, schedule.close);
+  const start = timeStringToMinutes(startTime);
+  const requestedEnd = timeStringToMinutes(endTime);
+  const end = Math.min(requestedEnd, schedule.close);
 
   if (end <= start) return 0;
 
@@ -966,13 +969,52 @@ function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) 
   return roundHours(minutes / 60);
 }
 
+function isJobPastBookTime(job, ctx) {
+  if (!job?.start_time || !job?.book_hours) return false;
+  const projected = getJobProjectedFinish(job, ctx);
+  if (projected.dayOffset > 0) return false;
+  return timeStringToMinutes(shortTime(new Date().toTimeString())) >= timeStringToMinutes(projected.finishTime);
+}
+
+function calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx) {
+  if (!job || !helperStartTime || !helperEndTime) return 0;
+
+  const projected = getJobProjectedFinish(job, ctx);
+  const schedule = getShopSchedule(ctx);
+  const start = timeStringToMinutes(helperStartTime);
+  const requestedEnd = Math.min(timeStringToMinutes(helperEndTime), schedule.close);
+  const bookFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
+
+  if (requestedEnd <= start) return 0;
+
+  let creditedMinutes = 0;
+  for (let minute = start; minute < requestedEnd; minute += 1) {
+    if (!isWorkingMinute(minute, schedule)) continue;
+
+    // Normal helper credit before the lead job's book time expires.
+    // Any helper time after book time has expired is credited at 110% efficiency.
+    creditedMinutes += minute >= bookFinish ? 1.1 : 1;
+  }
+
+  return roundHours(creditedMinutes / 60);
+}
+
 function calculateHelperBookHours(job, helperStartTime, ctx) {
   if (!job || !helperStartTime) return 0;
 
   const projected = getJobProjectedFinish(job, ctx);
   const schedule = getShopSchedule(ctx);
-  const helperEndTime = projected.dayOffset > 0 ? minutesToTime(schedule.close) : projected.finishTime;
-  return calculateHelperCreditedHours(job, helperStartTime, helperEndTime, ctx);
+  const nowTime = shortTime(new Date().toTimeString());
+  const helperStart = timeStringToMinutes(helperStartTime);
+  const projectedFinish = projected.dayOffset > 0 ? schedule.close : timeStringToMinutes(projected.finishTime);
+
+  // If the job is still inside book time and the helper starts before projected finish,
+  // estimate helper credit through the projected finish. If the job is already over book
+  // time, show live 110% credited time from helper start to now.
+  const liveEnd = Math.min(timeStringToMinutes(nowTime), schedule.close);
+  const endMinute = projectedFinish > helperStart ? projectedFinish : liveEnd;
+
+  return calculateHelperCreditedHours(job, helperStartTime, minutesToTime(endMinute), ctx);
 }
 
 function getHelperDisplayHours(helper, job, ctx) {
