@@ -79,7 +79,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         comebackReworkResult,
         auditLogResult,
         accessLogResult,
-      ] = await Promise.all(
+      ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
         fetchTable("categories", companyId),
