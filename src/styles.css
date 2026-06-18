@@ -745,3 +745,90 @@ button:not(.primary):not(.sidebarButton) {
     font-size: 30px;
   }
 }
+
+/* v3.3 comeback / rework + audit log */
+.adminOpsGrid {
+  margin-top: 18px;
+}
+.comebackForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.comebackForm label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #64748b;
+}
+.comebackForm input,
+.comebackForm select,
+.comebackForm textarea {
+  width: 100%;
+  border: 1px solid #d7deea;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  color: #0f172a;
+  background: #fff;
+}
+.comebackForm textarea {
+  min-height: 72px;
+}
+.auditList {
+  display: grid;
+  gap: 10px;
+  max-height: 520px;
+  overflow: auto;
+}
+.auditItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #e5eaf1;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.auditItem > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.auditItem b {
+  color: #0f172a;
+}
+.auditItem span,
+.auditItem small {
+  color: #64748b;
+}
+.auditType,
+.statusMini {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #e2e8f0;
+  color: #334155;
+}
+.statusMini.done {
+  background: #dcfce7;
+  color: #166534;
+}
+.statusMini.open {
+  background: #ffedd5;
+  color: #9a3412;
+}
+@media (max-width: 760px) {
+  .comebackForm {
+    grid-template-columns: 1fr;
+  }
+  .auditItem {
+    display: grid;
+  }
+}

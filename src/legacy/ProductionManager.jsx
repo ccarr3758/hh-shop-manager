@@ -76,6 +76,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         jobProducts,
         jobHelpersResult,
         technicianAttendanceResult,
+        comebackReworkResult,
+        auditLogResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -88,6 +90,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchTable("job_products", companyId),
         fetchOptionalJobHelpers(companyId),
         fetchOptionalTechnicianAttendance(companyId),
+        fetchOptionalComebackRework(companyId),
+        fetchOptionalAuditLogs(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -103,6 +107,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         jobProducts,
         jobHelpers: jobHelpersResult || [],
         technicianAttendance: technicianAttendanceResult || [],
+        comebackRework: comebackReworkResult || [],
+        auditLogs: auditLogResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -156,6 +162,16 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "technician_attendance", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comeback_rework", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "audit_logs", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -281,17 +297,17 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} access={access} />
 )}
         {view === "Mobile Manager" && (
-          <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} />
+          <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
         {view === "Dashboard" && <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
-        {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
-        {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
-        {view === "Production Log" && <ProductionLog jobs={visibleJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} />}
+        {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
+        {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
+        {view === "Production Log" && <ProductionLog jobs={visibleJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} access={access} />}
         {view === "Technicians" && <Technicians jobs={visibleJobs} ctx={ctx} />}
         {view === "Tech Clock" && <TechnicianClock ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
         {view === "Products" && <Products ctx={ctx} reload={loadAll} />}
-        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} />}
+        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} access={access} />}
         {view === "Cloud Status" && <CloudStatus state={state} />}
 
         {showNewJob && <NewJobModal onClose={() => setShowNewJob(false)} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -301,6 +317,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
             ctx={ctx}
             reload={loadAll}
             onClose={() => setEditingJob(null)}
+            access={access}
           />
         )}
 
@@ -469,7 +486,7 @@ function MobileStyles() {
   );
 }
 
-function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
+function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access }) {
   const [filter, setFilter] = useState("Open");
   const currentMinute = useCurrentMinute();
 
@@ -502,6 +519,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .eq("id", job.id);
 
     if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: `Job status changed to ${statusName}`,
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} set to ${statusName}`,
+      metadata: { job_id: job.id, statusName },
+    });
     await reload();
   }
 
@@ -526,6 +550,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .eq("id", job.id);
 
     if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job completed",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} completed with ${roundHours(actualHours)} actual hrs`,
+      metadata: { actualHours: roundHours(actualHours) },
+    });
     notifyUser(`Completed: ${job.vehicle || "job"} • ${roundHours(actualHours)} actual hrs`);
     await reload();
   }
@@ -569,6 +600,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .eq("id", job.id);
 
     if (updateError) return alert(updateError.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job rolled over",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} rolled to ${nextDate}`,
+      metadata: { nextDate, remainingBookHours, todayBookHours },
+    });
     notifyUser(`Rolled ${job.vehicle || "job"} to ${nextDate}`);
     await reload();
   }
@@ -603,6 +641,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .upsert(helperRow, { onConflict: "job_id,technician_id,scheduled_date" });
 
     if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Helper added",
+      entityType: "job_helper",
+      entityId: job.id,
+      summary: `${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)}`,
+      metadata: helperRow,
+    });
     notifyUser(`${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)}`);
     await reload();
   }
@@ -625,6 +670,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
       .eq("id", helper.id);
 
     if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Helper ended",
+      entityType: "job_helper",
+      entityId: helper.id,
+      summary: `${ctx.tech(helper.technician_id)?.name || "Helper"} ended help on ${job.vehicle || "job"}`,
+      metadata: { helper_id: helper.id, job_id: job.id, creditedHours, actualHours },
+    });
     notifyUser(`${ctx.tech(helper.technician_id)?.name || "Helper"} ended help with ${creditedHours} credited hrs (${actualHours} actual hrs)`);
     await reload();
   }
@@ -632,6 +684,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate }) {
   async function removeHelperFromJob(helperId) {
     const { error } = await supabase.from("job_helpers").delete().eq("id", helperId);
     if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Helper removed",
+      entityType: "job_helper",
+      entityId: helperId,
+      summary: "Helper removed with no credited hours",
+      metadata: { helperId },
+    });
     notifyUser("Helper removed with no credited hours");
     await reload();
   }
@@ -1268,7 +1327,7 @@ function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) 
   );
 }
 
-function Foreman({ jobs, ctx, reload }) {
+function Foreman({ jobs, ctx, reload, access }) {
   const open = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const inProgress = ctx.statuses.find((s) => s.name === "In Progress")?.id;
   const waiting = ctx.statuses.find((s) => s.name === "Waiting")?.id;
@@ -1351,7 +1410,7 @@ function Foreman({ jobs, ctx, reload }) {
   );
 }
 
-function ProductionLog({ jobs, ctx, reload, setEditingJob }) {
+function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
   const [search, setSearch] = useState("");
   const filteredJobs = jobs.filter((j) => {
     const haystack = [j.customer, j.vehicle, ctx.jobProductsSummary(j), ctx.tech(j.technician_id)?.name, ctx.status(j.status_id)?.name]
@@ -1365,6 +1424,14 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob }) {
 
     const { error } = await supabase.from("jobs").delete().eq("id", id);
     if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: "Job deleted",
+      entityType: "job",
+      entityId: id,
+      summary: "Job deleted from production log",
+      metadata: { jobId: id },
+    });
 
     await reload();
   }
@@ -2423,7 +2490,176 @@ function deltaClass(value) {
 // <span>{j.qc || "N/A"}</span>
 // <button onClick={() => deleteJob(j.id)}>Delete</button>
 
-function Admin({ ctx, reload }) {
+function ComebackReworkManager({ ctx, reload, access }) {
+  const completedJobs = (ctx.jobs || []).filter((job) => ctx.isComplete(job.status_id));
+  const [draft, setDraft] = useState({
+    original_job_id: completedJobs[0]?.id || "",
+    reason: "",
+    rework_technician_id: ctx.technicians[0]?.id || "",
+    rework_hours: "",
+    status: "open",
+    notes: "",
+  });
+
+  const selectedJob = ctx.jobs.find((job) => job.id === draft.original_job_id);
+  const originalTech = selectedJob ? ctx.tech(selectedJob.technician_id) : null;
+  const rows = [...(ctx.comebackRework || [])].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+
+  async function createComeback(e) {
+    e.preventDefault();
+    if (!selectedJob) return alert("Select the original completed job.");
+    if (!draft.reason.trim()) return alert("Enter the comeback / rework reason.");
+
+    const payload = {
+      company_id: ctx.company.id,
+      original_job_id: selectedJob.id,
+      original_technician_id: selectedJob.technician_id || null,
+      rework_technician_id: draft.rework_technician_id || null,
+      customer: selectedJob.customer || "",
+      vehicle: selectedJob.vehicle || "",
+      product_summary: ctx.jobProductsSummary(selectedJob),
+      original_completed_at: selectedJob.production_completed_at || selectedJob.updated_at || null,
+      reason: draft.reason.trim(),
+      rework_hours: draft.rework_hours === "" ? null : Number(draft.rework_hours),
+      status: draft.status || "open",
+      notes: draft.notes || "",
+      created_by_name: access?.fullName || access?.email || access?.role || "Unknown",
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from("comeback_rework").insert(payload).select("id").single();
+    if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: "Comeback created",
+      entityType: "comeback_rework",
+      entityId: data?.id,
+      summary: `${selectedJob.vehicle || "Job"} comeback tied to ${originalTech?.name || "original installer"}`,
+      metadata: payload,
+    });
+
+    setDraft({ original_job_id: completedJobs[0]?.id || "", reason: "", rework_technician_id: ctx.technicians[0]?.id || "", rework_hours: "", status: "open", notes: "" });
+    await reload();
+  }
+
+  async function updateComeback(row, updates) {
+    const payload = { ...updates, updated_at: new Date().toISOString() };
+    if (updates.status === "resolved") payload.resolved_at = new Date().toISOString();
+
+    const { error } = await supabase.from("comeback_rework").update(payload).eq("id", row.id);
+    if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: updates.status === "resolved" ? "Comeback resolved" : "Comeback updated",
+      entityType: "comeback_rework",
+      entityId: row.id,
+      summary: `${row.vehicle || "Job"} comeback ${updates.status === "resolved" ? "resolved" : "updated"}`,
+      metadata: { before: row, updates },
+    });
+
+    await reload();
+  }
+
+  async function removeComeback(row) {
+    if (!confirm("Delete this comeback / rework record?")) return;
+    const { error } = await supabase.from("comeback_rework").delete().eq("id", row.id);
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Comeback deleted",
+      entityType: "comeback_rework",
+      entityId: row.id,
+      summary: `${row.vehicle || "Job"} comeback deleted`,
+      metadata: row,
+    });
+    await reload();
+  }
+
+  return (
+    <Panel title="Comebacks / Rework" chip={`${rows.length}`}>
+      <form className="comebackForm" onSubmit={createComeback}>
+        <label>
+          Original completed job
+          <select value={draft.original_job_id} onChange={(e) => setDraft({ ...draft, original_job_id: e.target.value })}>
+            {completedJobs.map((job) => (
+              <option key={job.id} value={job.id}>
+                {job.customer} • {job.vehicle} • {ctx.jobProductsSummary(job)} • {ctx.tech(job.technician_id)?.name || "No tech"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Original installer
+          <input value={originalTech?.name || "—"} readOnly />
+        </label>
+        <label>
+          Fixed by
+          <select value={draft.rework_technician_id} onChange={(e) => setDraft({ ...draft, rework_technician_id: e.target.value })}>
+            <option value="">Not assigned</option>
+            {ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Rework hours
+          <input type="number" step="0.1" value={draft.rework_hours} onChange={(e) => setDraft({ ...draft, rework_hours: e.target.value })} />
+        </label>
+        <label className="fullWidth">
+          Reason
+          <input value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} placeholder="Loose hardware, adjustment, alignment issue, wiring correction..." />
+        </label>
+        <label className="fullWidth">
+          Notes
+          <textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+        </label>
+        <button className="primary wide" disabled={!completedJobs.length}>Add Comeback / Rework</button>
+      </form>
+
+      <div className="auditList comebackList">
+        {rows.map((row) => {
+          const original = ctx.tech(row.original_technician_id)?.name || "Unknown";
+          const fixedBy = ctx.tech(row.rework_technician_id)?.name || "Unassigned";
+          return (
+            <div className="auditItem" key={row.id}>
+              <div>
+                <b>{row.vehicle || "Vehicle"} • {row.product_summary || "Job"}</b>
+                <span>{row.customer || "Customer"} • caused by {original} • fixed by {fixedBy}</span>
+                <small>{row.reason} {row.rework_hours ? `• ${Number(row.rework_hours).toFixed(1)} rework hrs` : ""}</small>
+              </div>
+              <div className="rowActions">
+                <span className={`statusMini ${row.status === "resolved" ? "done" : "open"}`}>{row.status || "open"}</span>
+                {row.status !== "resolved" && <button onClick={() => updateComeback(row, { status: "resolved" })}>Resolve</button>}
+                <button onClick={() => removeComeback(row)}>Delete</button>
+              </div>
+            </div>
+          );
+        })}
+        {!rows.length && <p className="muted">No comeback or rework records yet.</p>}
+      </div>
+    </Panel>
+  );
+}
+
+function AuditLogPanel({ ctx }) {
+  const rows = [...(ctx.auditLogs || [])].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).slice(0, 250);
+  return (
+    <Panel title="Audit Log" chip={`${rows.length}`}>
+      <div className="auditList">
+        {rows.map((row) => (
+          <div className="auditItem" key={row.id}>
+            <div>
+              <b>{row.action || "Action"}</b>
+              <span>{row.summary || `${row.entity_type || "Record"} ${row.entity_id || ""}`}</span>
+              <small>{formatDateTime(row.created_at)} • {row.actor_name || "Unknown"} • {String(row.actor_role || "").replace("_", " ")}</small>
+            </div>
+            <span className="auditType">{row.entity_type || "system"}</span>
+          </div>
+        ))}
+        {!rows.length && <p className="muted">No audit activity yet.</p>}
+      </div>
+    </Panel>
+  );
+}
+
+function Admin({ ctx, reload, access }) {
   return (
     <section className="page">
       <div className="adminHero">
@@ -2439,6 +2675,11 @@ function Admin({ ctx, reload }) {
         <EditableCloudList title="Delay Reasons" table="delay_reasons" items={ctx.delayReasons} reload={reload} companyId={ctx.company.id} type="delay" />
         <EditableCloudList title="Labor Rates" table="labor_rates" items={ctx.laborRates} reload={reload} companyId={ctx.company.id} type="labor" />
         <ShopHours ctx={ctx} reload={reload} />
+      </div>
+
+      <div className="grid two adminOpsGrid">
+        <ComebackReworkManager ctx={ctx} reload={reload} access={access} />
+        <AuditLogPanel ctx={ctx} />
       </div>
     </section>
   );
@@ -2709,7 +2950,7 @@ function CloudStatus({ state }) {
 }
 
 
-function OutlookCalendar({ jobs, ctx, reload, selectedDate, setSelectedDate }) {
+function OutlookCalendar({ jobs, ctx, reload, selectedDate, setSelectedDate, access }) {
   const [appointments, setAppointments] = useState(() => loadOutlookAppointments());
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [manual, setManual] = useState({ title: "", date: selectedDate || todayIso(), start: "08:00", body: "" });
@@ -3063,6 +3304,14 @@ function OutlookImportModal({ appointment, ctx, reload, onClose }) {
     const lineError = await saveJobProductLines(ctx.company.id, data.id, productLines);
     if (lineError) return alert(lineError.message || lineError);
 
+    await logAuditEvent(ctx, access, {
+      action: "Job created",
+      entityType: "job",
+      entityId: data.id,
+      summary: `${payload.vehicle || "Job"} imported from Outlook for ${payload.customer || "customer"}`,
+      metadata: payload,
+    });
+
     await reload();
     onClose();
   }
@@ -3129,7 +3378,7 @@ function OutlookImportModal({ appointment, ctx, reload, onClose }) {
   );
 }
 
-function EditJobModal({ job, ctx, reload, onClose }) {
+function EditJobModal({ job, ctx, reload, onClose, access }) {
   const existingLines = ctx.jobProductLines(job.id);
   const [productLines, setProductLines] = useState(() =>
     normalizeProductLines(ctx, existingLines.length ? existingLines : [makeProductLine(ctx.product(job.product_id), job.book_hours, job.labor_sold)], true)
@@ -3174,6 +3423,14 @@ function EditJobModal({ job, ctx, reload, onClose }) {
 
     const { error } = await supabase.from("jobs").update(payload).eq("id", job.id);
     if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: "Job edited",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${payload.vehicle || "Job"} edited`,
+      metadata: { before: job, after: payload },
+    });
 
     const lineError = await saveJobProductLines(ctx.company.id, job.id, productLines);
     if (lineError) return alert(lineError.message || lineError);
@@ -3299,6 +3556,14 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
 
     const lineError = await saveJobProductLines(ctx.company.id, data.id, productLines);
     if (lineError) return alert(lineError.message || lineError);
+
+    await logAuditEvent(ctx, access, {
+      action: "Job created",
+      entityType: "job",
+      entityId: data.id,
+      summary: `${job.vehicle || "Job"} created for ${job.customer || "customer"}`,
+      metadata: job,
+    });
 
     await reload();
     onClose();
@@ -3689,6 +3954,55 @@ async function fetchOptionalTechnicianAttendance(companyId) {
   return data || [];
 }
 
+async function fetchOptionalComebackRework(companyId) {
+  const { data, error } = await supabase
+    .from("comeback_rework")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("comeback_rework")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function fetchOptionalAuditLogs(companyId) {
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(250);
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("audit_logs")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function logAuditEvent(ctx, access, { action, entityType, entityId, summary, metadata = {} }) {
+  if (!supabase || !ctx?.company?.id) return;
+
+  const payload = {
+    company_id: ctx.company.id,
+    actor_name: access?.fullName || access?.email || access?.role || "Unknown",
+    actor_role: access?.role || "unknown",
+    action,
+    entity_type: entityType,
+    entity_id: entityId || null,
+    summary: summary || "",
+    metadata,
+  };
+
+  const { error } = await supabase.from("audit_logs").insert(payload);
+  if (error && error.code !== "42P01") console.warn("Audit log failed", error.message);
+}
+
 async function fetchJobs(companyId) {
   const { data, error } = await supabase
     .from("jobs")
@@ -3794,6 +4108,8 @@ function makeContext(state) {
     isTechClockedIn,
     jobHelpers: state.jobHelpers || [],
     technicianAttendance: state.technicianAttendance || [],
+    comebackRework: state.comebackRework || [],
+    auditLogs: state.auditLogs || [],
   };
 }
 
@@ -3809,6 +4125,8 @@ function emptyState() {
     jobProducts: [],
     jobHelpers: [],
     technicianAttendance: [],
+    comebackRework: [],
+    auditLogs: [],
     shopSettings: null,
     jobs: [],
   };
@@ -3915,6 +4233,13 @@ function formatTime(value) {
   const d = new Date();
   d.setHours(h, m, 0, 0);
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function formatShortDate(value) {
