@@ -693,14 +693,17 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
       return alert("Enter a valid start time, like 08:30 or 1:30 PM.");
     }
 
-    const datePart = job.production_started_at
-      ? new Date(job.production_started_at).toISOString().slice(0, 10)
-      : (job.scheduled_date || selectedDate || todayIso());
-    const productionStartedAt = `${datePart}T${cleanTime}:00`;
+    const datePart = job.scheduled_date || selectedDate || todayIso();
+    const localStart = new Date(`${datePart}T${cleanTime}:00`);
+    const productionStartedAt = localStart.toISOString();
 
     const { error } = await supabase
       .from("jobs")
-      .update({ production_started_at: productionStartedAt, updated_at: new Date().toISOString() })
+      .update({
+        start_time: cleanTime,
+        production_started_at: productionStartedAt,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", job.id);
 
     if (error) return alert(error.message);
@@ -1775,14 +1778,17 @@ function Foreman({ jobs, ctx, reload, access }) {
       return alert("Enter a valid start time, like 08:30 or 1:30 PM.");
     }
 
-    const datePart = job.production_started_at
-      ? new Date(job.production_started_at).toISOString().slice(0, 10)
-      : (job.scheduled_date || todayIso());
-    const productionStartedAt = `${datePart}T${cleanTime}:00`;
+    const datePart = job.scheduled_date || todayIso();
+    const localStart = new Date(`${datePart}T${cleanTime}:00`);
+    const productionStartedAt = localStart.toISOString();
 
     const { error } = await supabase
       .from("jobs")
-      .update({ production_started_at: productionStartedAt, updated_at: new Date().toISOString() })
+      .update({
+        start_time: cleanTime,
+        production_started_at: productionStartedAt,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", job.id);
 
     if (error) return alert(error.message);

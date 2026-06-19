@@ -134,6 +134,11 @@
   display: block;
   margin-top: 4px;
   font-size: 15px;
+  color: #0f172a;
+}
+
+.mobileBookCard strong {
+  color: #0f172a !important;
 }
 
 .mobileActionGrid {
