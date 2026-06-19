@@ -902,7 +902,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
     const files = Array.from(fileList || []);
     if (!files.length) return;
 
-    const note = window.prompt("Damage note / location on truck (example: scratch on driver bedside)", "Pre-install damage noticed");
+    const note = window.prompt("Photo note / location on truck (example: scratch on driver bedside)", "Photo added");
     if (note === null) return;
 
     for (const file of files) {
@@ -929,7 +929,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
         company_id: ctx.company.id,
         job_id: job.id,
         uploaded_by: access?.fullName || access?.email || access?.role || "Unknown",
-        note: note || "Pre-install damage noticed",
+        note: note || "Photo added",
         storage_path: path,
         public_url: publicData?.publicUrl || null,
         file_name: file.name,
@@ -945,13 +945,13 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
     }
 
     await logAuditEvent(ctx, access, {
-      action: "Pre-install damage photos uploaded",
+      action: "Job photos uploaded",
       entityType: "job",
       entityId: job.id,
-      summary: `${files.length} damage photo${files.length === 1 ? "" : "s"} uploaded for ${job.vehicle || "job"}`,
+      summary: `${files.length} photo${files.length === 1 ? "" : "s"} uploaded for ${job.vehicle || "job"}`,
       metadata: { job_id: job.id, photo_count: files.length, note },
     });
-    notifyUser(`${files.length} damage photo${files.length === 1 ? "" : "s"} uploaded`);
+    notifyUser(`${files.length} photo${files.length === 1 ? "" : "s"} uploaded`);
     await reload();
   }
 
@@ -1084,7 +1084,7 @@ function DamagePhotoPanel({ job, ctx, onUpload }) {
     <div className="mobileDamagePanel">
       <div className="mobileDamageHead">
         <div>
-          <strong>Pre-install Damage</strong>
+          <strong>Photos</strong>
           <span>{photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} logged` : "No photos logged"}</span>
         </div>
         <label className="mobileDamageUpload">
@@ -1104,8 +1104,8 @@ function DamagePhotoPanel({ job, ctx, onUpload }) {
       {photos.length > 0 && (
         <div className="mobileDamageThumbs">
           {photos.slice(0, 4).map((photo) => (
-            <a key={photo.id || photo.storage_path} href={photo.public_url} target="_blank" rel="noreferrer" title={photo.note || "Damage photo"}>
-              <img src={photo.public_url} alt={photo.note || "Pre-install damage"} loading="lazy" />
+            <a key={photo.id || photo.storage_path} href={photo.public_url} target="_blank" rel="noreferrer" title={photo.note || "Job photo"}>
+              <img src={photo.public_url} alt={photo.note || "Job photo"} loading="lazy" />
             </a>
           ))}
         </div>
@@ -1851,6 +1851,7 @@ function Foreman({ jobs, ctx, reload, access }) {
 function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
   const [search, setSearch] = useState("");
   const [logTab, setLogTab] = useState("completed");
+  const [photoJob, setPhotoJob] = useState(null);
   const filteredJobs = jobs.filter((j) => {
     const haystack = [j.customer, j.vehicle, ctx.jobProductsSummary(j), ctx.tech(j.technician_id)?.name, ctx.status(j.status_id)?.name]
       .join(" ")
@@ -1889,7 +1890,7 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
               <input placeholder="Search customer, vehicle, job, tech..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <div className="table">
-              <div className="row header">
+              <div className="row header productionLogRow">
                 <span>Customer</span>
                 <span>Vehicle</span>
                 <span>Job</span>
@@ -1899,13 +1900,14 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
                 <span>Actual</span>
                 <span>Eff.</span>
                 <span>QC</span>
+                <span>Photos</span>
                 <span></span>
               </div>
 
               {filteredJobs.map((j) => {
                 const eff = efficiency(j);
                 return (
-                  <div className="row" key={j.id}>
+                  <div className="row productionLogRow" key={j.id}>
                     <b>{j.customer}</b>
                     <span>{j.vehicle}</span>
                     <span>{ctx.jobProductsSummary(j)}</span>
@@ -1915,6 +1917,9 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
                     <span>{j.actual_hours ?? "—"}</span>
                     <b className={effClass(eff)}>{eff ? `${Math.round(eff)}%` : "—"}</b>
                     <span>{j.qc || "N/A"}</span>
+                    <button className="photosLogButton" onClick={() => setPhotoJob(j)}>
+                      <ImagePlus size={15} /> {(ctx.damagePhotos || []).filter((photo) => photo.job_id === j.id).length}
+                    </button>
                     <div className="rowActions">
                       <button onClick={() => setEditingJob(j)}>Edit</button>
                       <button onClick={() => deleteJob(j.id)}>Delete</button>
@@ -1928,7 +1933,48 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
           <ComebackReworkManager ctx={ctx} reload={reload} access={access} />
         )}
       </Panel>
+      {photoJob && <JobPhotosModal job={photoJob} ctx={ctx} onClose={() => setPhotoJob(null)} />}
     </section>
+  );
+}
+
+function JobPhotosModal({ job, ctx, onClose }) {
+  const photos = (ctx.damagePhotos || [])
+    .filter((photo) => photo.job_id === job.id)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return (
+    <div className="modalBackdrop">
+      <div className="modal photoModal">
+        <div className="modalHeader">
+          <div>
+            <h3>Photos</h3>
+            <p className="muted">{job.customer || "Customer"} • {job.vehicle || "Vehicle"} • {photos.length} photo{photos.length === 1 ? "" : "s"}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close photos"><X size={22} /></button>
+        </div>
+
+        {photos.length ? (
+          <div className="productionPhotoGrid">
+            {photos.map((photo) => (
+              <a className="productionPhotoCard" key={photo.id || photo.storage_path} href={photo.public_url} target="_blank" rel="noreferrer">
+                <img src={photo.public_url} alt={photo.note || "Job photo"} loading="lazy" />
+                <div>
+                  <strong>{photo.note || "Job photo"}</strong>
+                  <span>{photo.uploaded_by || "Unknown"} • {formatDateTime(photo.created_at)}</span>
+                </div>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="emptyState">
+            <ImagePlus size={30} />
+            <h2>No photos attached</h2>
+            <p>Photos uploaded from Mobile Manager will stay attached to this production log job.</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
