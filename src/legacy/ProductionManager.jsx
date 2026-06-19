@@ -292,7 +292,6 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         ) : (
           <header className="topbar">
             <div>
-              <img className="topbarLogo" src="/brand/hh-shield.png" alt="H&H" />
               <h2>{view}</h2>
             </div>
             <div className="topActions">
