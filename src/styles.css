@@ -309,6 +309,7 @@ button:not(.primary):not(.sidebarButton) {
   gap: 10px;
 }
 
+.miniStat span{display:block;color:#64748b;font-size:15px;font-weight:800;line-height:1.25}.miniStat strong{display:block;margin-top:8px;color:#0f172a;font-size:24px;font-weight:950;letter-spacing:-.035em}.techHeaderCard strong{font-size:20px;font-weight:950}
 .performanceTable {
   display: grid;
   gap: 8px;

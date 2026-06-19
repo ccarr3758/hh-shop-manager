@@ -323,7 +323,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -568,8 +568,16 @@ function MobileStyles() {
         .mobileSelfHelperGrid { display: grid; grid-template-columns: 1fr 112px; gap: 8px; margin-top: 10px; }
         .mobileSelfHelperActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
         .mobileSelfHelperActions button { min-height: 42px; border: 0; border-radius: 12px; background: #f97316; color: white; font-size: 13px; font-weight: 1000; }
+        .mobileSelfHelperActions button:disabled { background: #e5e7eb !important; color: #334155 !important; opacity: 1 !important; cursor: not-allowed; }
         .mobileSelfHelperActions button.secondary { background: #e2e8f0; color: #0f172a; }
         .mobileSelfHelperActions button.stop { background: #dc2626; color: white; }
+        .mobileHelpShortcut { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid rgba(249,115,22,.55) !important; border-radius: 22px !important; background: rgba(17,24,39,.96) !important; color: white !important; box-shadow: 0 14px 34px rgba(249,115,22,.16); text-align: left; }
+        .mobileHelpShortcut .mobileHelpIcon { width: 44px; height: 44px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg,#f97316,#fb923c); font-size: 22px; }
+        .mobileHelpShortcut strong { display: block; color: white; font-size: 16px; line-height: 1.1; }
+        .mobileHelpShortcut small { display: block; margin-top: 3px; color: #cbd5e1; font-size: 11px; font-weight: 800; line-height: 1.25; }
+        .mobileHelpShortcut b { justify-self: end; padding: 9px 12px; border-radius: 14px; background: #f97316; color: white; font-size: 12px; font-weight: 1000; }
+        .mobileHelpShortcut.active { border-color: rgba(34,197,94,.60) !important; }
+        .mobileHelpShortcut.active b { background: #16a34a; }
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
@@ -1148,11 +1156,18 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
     ? (allJobs || []).find((j) => j.id === activeHelper.job_id) || (ctx.jobs || []).find((j) => j.id === activeHelper.job_id)
     : null;
 
+  const activePrimaryJob = (allJobs || []).find(
+    (candidate) =>
+      candidate.technician_id === technicianId &&
+      !ctx.isComplete(candidate.status_id) &&
+      ctx.status(candidate.status_id)?.name === "In Progress"
+  );
+
   const helperOptions = sortJobsByEarliestStart(
     (allJobs || [])
       .filter((candidate) => !ctx.isComplete(candidate.status_id))
       .filter((candidate) => candidate.technician_id !== technicianId)
-      .filter((candidate) => ["Scheduled", "In Progress", "Waiting", "QC"].includes(ctx.status(candidate.status_id)?.name))
+      .filter((candidate) => ["In Progress", "Waiting", "QC"].includes(ctx.status(candidate.status_id)?.name))
   );
 
   if (activeHelper) {
@@ -1168,7 +1183,7 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
     );
   }
 
-  if (job?.technician_id === technicianId && helperOptions.length === 0) return null;
+  if (activePrimaryJob) return null;
 
   return (
     <div className="mobileSelfHelperPanel">
@@ -1176,10 +1191,10 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
       <span>Start time defaults to now. Change it if you are backlogging.</span>
       <div className="mobileSelfHelperGrid">
         <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
-          <option value="">Select job</option>
+          <option value="">Select technician to help</option>
           {helperOptions.map((candidate) => (
             <option key={candidate.id} value={candidate.id}>
-              {formatTime(candidate.start_time)} • {ctx.tech(candidate.technician_id)?.name || "Unassigned"} • {candidate.vehicle || candidate.customer || "Job"}
+              {ctx.tech(candidate.technician_id)?.name || "Unassigned"} — {ctx.jobProductsSummary(candidate) || candidate.vehicle || candidate.customer || "Active job"}
             </option>
           ))}
         </select>
@@ -1187,15 +1202,16 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
       </div>
       <div className="mobileSelfHelperActions">
         <button
+          disabled={!selectedJobId}
           onClick={() => {
             const targetJob = helperOptions.find((candidate) => candidate.id === selectedJobId);
-            if (!targetJob) return alert("Select the job you are helping on.");
+            if (!targetJob) return alert("Select the technician you are helping.");
             onStartHelping(targetJob, helperStartTime || getCurrentHelperStartTime());
             setSelectedJobId("");
             setHelperStartTime(getCurrentHelperStartTime());
           }}
         >
-          Start Helping
+          {selectedJobId ? "Start Helping" : "Select Tech First"}
         </button>
         <button
           className="secondary"
@@ -1251,7 +1267,7 @@ function DamagePhotoPanel({ job, ctx, onUpload }) {
 }
 
 
-function MobileDashboard({ jobs, ctx, metrics, selectedDate, access }) {
+function MobileDashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, onOpenHelpShortcut }) {
   const currentMinute = getCurrentMinuteOfDay();
   const activeStatuses = new Set(["In Progress", "Waiting", "QC"]);
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
@@ -1270,6 +1286,11 @@ function MobileDashboard({ jobs, ctx, metrics, selectedDate, access }) {
   const firstName = (displayName.split(/\s+/)[0] || "").toUpperCase();
   const heroEyebrow = isFloorUser ? `Welcome back${firstName ? ` ${firstName}` : ""}` : "Live Production";
   const heroTitle = isFloorUser ? "My Daily Stats" : "Today's Shop";
+  const activePrimaryJob = isFloorUser && access?.technicianId
+    ? (jobs || []).find((job) => job.technician_id === access.technicianId && ctx.status(job.status_id)?.name === "In Progress" && !ctx.isComplete(job.status_id))
+    : null;
+  const activeHelper = isFloorUser && access?.technicianId ? getHelperAssignmentForTech(access.technicianId, ctx, selectedDate) : null;
+  const canUseHelpShortcut = Boolean(isFloorUser && !activePrimaryJob);
 
   return (
     <section className="mobileDashScreen">
@@ -1292,6 +1313,17 @@ function MobileDashboard({ jobs, ctx, metrics, selectedDate, access }) {
           <div><strong>{openJobs.length}</strong><span>Open</span></div>
         </div>
       </div>
+
+      {canUseHelpShortcut && (
+        <button className={`mobileHelpShortcut ${activeHelper ? "active" : ""}`} onClick={onOpenHelpShortcut}>
+          <span className="mobileHelpIcon">🤝</span>
+          <span>
+            <strong>{activeHelper ? "Stop Helping" : "Help Another Tech"}</strong>
+            <small>{activeHelper ? "You have an active helper session." : "No active primary job? Assist another technician."}</small>
+          </span>
+          <b>{activeHelper ? "Open" : "Start"}</b>
+        </button>
+      )}
 
       <div className="mobileKpiGrid">
         <div className="mobileKpiCard orange"><span>Shop Capacity</span><strong>{capacity}%</strong><small>Current workload</small></div>
