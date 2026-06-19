@@ -570,15 +570,15 @@ function MobileStyles() {
         .phoneDatePicker { height: 38px !important; border-radius: 16px !important; font-size: 18px !important; padding: 0 14px !important; box-shadow: 0 8px 22px rgba(255,255,255,.04); }
         .phoneHeaderActions { grid-template-columns: 1fr; gap: 8px !important; }
         .phoneIconButton { width: 48px !important; height: 48px !important; border-radius: 18px !important; background: rgba(248,250,252,.96) !important; color: #f97316 !important; box-shadow: 0 16px 34px rgba(249,115,22,.24) !important; }
-        .phoneBottomNav { left: 14px !important; right: 14px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; min-height: 92px !important; border-radius: 30px !important; padding: 10px !important; gap: 8px !important; background: rgba(15,23,42,.94) !important; border: 1px solid rgba(255,255,255,.15) !important; backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,.48) !important; }
-        .phoneBottomNav button { position: relative; border-radius: 24px !important; min-height: 70px !important; color: #94a3b8 !important; font-weight: 900 !important; padding: 0 !important; gap: 0 !important; transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
-        .phoneBottomNav button svg { width: 32px !important; height: 32px !important; stroke-width: 2.35 !important; }
+        .phoneBottomNav { left: 14px !important; right: 14px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; min-height: 78px !important; border-radius: 26px !important; padding: 8px !important; gap: 7px !important; background: rgba(15,23,42,.94) !important; border: 1px solid rgba(255,255,255,.15) !important; backdrop-filter: blur(20px); box-shadow: 0 18px 42px rgba(0,0,0,.44) !important; }
+        .phoneBottomNav button { position: relative; border-radius: 20px !important; min-height: 58px !important; color: #94a3b8 !important; font-weight: 900 !important; padding: 0 !important; gap: 0 !important; transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
+        .phoneBottomNav button svg { width: 24px !important; height: 24px !important; stroke-width: 2.45 !important; }
         .phoneBottomNav button span { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
-        .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; transform: translateY(-3px) scale(1.04); box-shadow: 0 14px 30px rgba(249,115,22,.45); }
-        .phoneBottomNav button.active svg { width: 36px !important; height: 36px !important; }
-        .phoneFab { right: 18px !important; bottom: calc(112px + env(safe-area-inset-bottom)) !important; width: 62px !important; height: 62px !important; border-radius: 22px !important; background: #f97316 !important; color: white !important; box-shadow: 0 18px 34px rgba(249,115,22,.38) !important; }
+        .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; transform: translateY(-2px) scale(1.02); box-shadow: 0 12px 24px rgba(249,115,22,.40); }
+        .phoneBottomNav button.active svg { width: 26px !important; height: 26px !important; }
+        .phoneFab { right: 18px !important; bottom: calc(96px + env(safe-area-inset-bottom)) !important; width: 58px !important; height: 58px !important; border-radius: 21px !important; background: #f97316 !important; color: white !important; box-shadow: 0 16px 30px rgba(249,115,22,.36) !important; }
 
-        .mobileDashScreen { padding: 16px 12px 128px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
+        .mobileDashScreen { padding: 16px 12px 114px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
         .mobileHeroCard { border-radius: 30px; padding: 20px; background: radial-gradient(circle at top left, rgba(249,115,22,.28), transparent 36%), linear-gradient(145deg, #172033, #253246); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 24px 60px rgba(0,0,0,.34); }
         .mobileHeroTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
         .mobileHeroTop p { margin: 0 0 8px; color: #f97316; font-size: 12px; font-weight: 1000; letter-spacing: .24em; text-transform: uppercase; }
@@ -658,6 +658,37 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
       entityId: job.id,
       summary: `${job.vehicle || "Job"} set to ${statusName}`,
       metadata: { job_id: job.id, statusName },
+    });
+    await reload();
+  }
+
+  async function editJobStartTime(job) {
+    const currentStart = getEffectiveJobStartTime(job);
+    const entered = window.prompt("Edit job start time (example: 1:30 PM or 13:30)", currentStart);
+    if (entered === null) return;
+
+    const cleanTime = normalizeTimeInput(entered);
+    if (!cleanTime || !/^\d{2}:\d{2}$/.test(cleanTime)) {
+      return alert("Enter a valid start time, like 08:30 or 1:30 PM.");
+    }
+
+    const datePart = job.production_started_at
+      ? new Date(job.production_started_at).toISOString().slice(0, 10)
+      : (job.scheduled_date || selectedDate || todayIso());
+    const productionStartedAt = `${datePart}T${cleanTime}:00`;
+
+    const { error } = await supabase
+      .from("jobs")
+      .update({ production_started_at: productionStartedAt, updated_at: new Date().toISOString() })
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job start time edited",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} start time changed to ${formatTime(cleanTime)}`,
+      metadata: { job_id: job.id, start_time: cleanTime },
     });
     await reload();
   }
@@ -931,6 +962,7 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
 
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
+                <button onClick={() => editJobStartTime(job)}>Edit Start</button>
                 <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button onClick={() => setEditingJob(job)}>Edit</button>
@@ -1613,6 +1645,30 @@ function Foreman({ jobs, ctx, reload, access }) {
     await reload();
   }
 
+  async function editJobStartTime(job) {
+    const currentStart = getEffectiveJobStartTime(job);
+    const entered = window.prompt("Edit job start time (example: 1:30 PM or 13:30)", currentStart);
+    if (entered === null) return;
+
+    const cleanTime = normalizeTimeInput(entered);
+    if (!cleanTime || !/^\d{2}:\d{2}$/.test(cleanTime)) {
+      return alert("Enter a valid start time, like 08:30 or 1:30 PM.");
+    }
+
+    const datePart = job.production_started_at
+      ? new Date(job.production_started_at).toISOString().slice(0, 10)
+      : (job.scheduled_date || todayIso());
+    const productionStartedAt = `${datePart}T${cleanTime}:00`;
+
+    const { error } = await supabase
+      .from("jobs")
+      .update({ production_started_at: productionStartedAt, updated_at: new Date().toISOString() })
+      .eq("id", job.id);
+
+    if (error) return alert(error.message);
+    await reload();
+  }
+
   async function completeJob(job) {
     const now = new Date();
     const startedAt = getJobStartedAt(job) || getScheduledStartDate(job) || now;
@@ -1658,6 +1714,7 @@ function Foreman({ jobs, ctx, reload, access }) {
             <div className="buttonGrid">
               {waiting && <button onClick={() => setStatus(job, waiting)}>Waiting</button>}
               {inProgress && <button onClick={() => setStatus(job, inProgress)}>Start</button>}
+              {ctx.status(job.status_id)?.name === "In Progress" && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
               {complete && (
                 <button className="completeBtn" onClick={() => completeJob(job)}>
                   Complete
