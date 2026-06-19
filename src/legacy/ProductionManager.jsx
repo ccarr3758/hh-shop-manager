@@ -314,7 +314,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
-        {view === "Dashboard" && <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -349,13 +349,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
             </button>
             <nav className="phoneBottomNav">
               {[
-                ["Mobile Manager", Smartphone, "Floor"],
                 ["Dashboard", LayoutDashboard, "Dash"],
                 ["Schedule", CalendarDays, "Schedule"],
-                ["Outlook Calendar", CalendarDays, "Outlook"],
+                ["Mobile Manager", Smartphone, "Floor"],
                 ["Production Log", ClipboardList, "Log"],
-                ["Tech Clock", UserCheck, "Clock"],
-                ["Admin", Settings, "Admin"],
+                ["Admin", Settings, "More"],
               ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
                 <button
                   key={name}
@@ -563,6 +561,54 @@ function MobileStyles() {
         .accessGate { min-height: 100vh; display: grid; place-items: center; padding: 18px; background: #070d1c; }
         .accessPanel { width: min(520px, 100%); border-radius: 22px; padding: 18px; background: #f8fafc; }
         .accessPanel label { display: grid; gap: 6px; margin: 12px 0; font-weight: 900; color: #0f172a; }
+
+        .phoneHeader { padding: calc(10px + env(safe-area-inset-top)) 18px 10px !important; align-items: center !important; }
+        .phoneHeader .eyebrow { font-size: 10px !important; letter-spacing: .20em !important; color: #f97316 !important; }
+        .phoneHeader h2 { font-size: 26px !important; font-weight: 1000 !important; letter-spacing: -.04em; }
+        .phoneDatePicker { height: 38px !important; border-radius: 16px !important; font-size: 18px !important; padding: 0 14px !important; box-shadow: 0 8px 22px rgba(255,255,255,.04); }
+        .phoneHeaderActions { grid-template-columns: 1fr; gap: 8px !important; }
+        .phoneIconButton { width: 48px !important; height: 48px !important; border-radius: 18px !important; background: rgba(248,250,252,.96) !important; color: #f97316 !important; box-shadow: 0 16px 34px rgba(249,115,22,.24) !important; }
+        .phoneBottomNav { left: 12px !important; right: 12px !important; bottom: calc(10px + env(safe-area-inset-bottom)) !important; border-radius: 24px !important; padding: 8px !important; background: rgba(15,23,42,.92) !important; border: 1px solid rgba(255,255,255,.14) !important; backdrop-filter: blur(18px); box-shadow: 0 18px 44px rgba(0,0,0,.45) !important; }
+        .phoneBottomNav button { border-radius: 18px !important; min-height: 58px !important; color: #94a3b8 !important; font-weight: 900 !important; }
+        .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; box-shadow: 0 10px 24px rgba(249,115,22,.35); }
+        .phoneFab { background: #f97316 !important; color: white !important; box-shadow: 0 18px 34px rgba(249,115,22,.38) !important; }
+
+        .mobileDashScreen { padding: 16px 12px 98px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
+        .mobileHeroCard { border-radius: 30px; padding: 20px; background: radial-gradient(circle at top left, rgba(249,115,22,.28), transparent 36%), linear-gradient(145deg, #172033, #253246); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 24px 60px rgba(0,0,0,.34); }
+        .mobileHeroTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+        .mobileHeroTop p { margin: 0 0 8px; color: #f97316; font-size: 12px; font-weight: 1000; letter-spacing: .24em; text-transform: uppercase; }
+        .mobileHeroTop h1 { margin: 0; color: #fff; font-size: 38px; line-height: .95; letter-spacing: -.06em; }
+        .mobileHeroTop span { display: block; margin-top: 10px; color: #cbd5e1; font-weight: 800; }
+        .mobileEfficiencyRing { flex: 0 0 104px; width: 104px; height: 104px; border-radius: 999px; display: grid; place-items: center; align-content: center; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.16); }
+        .mobileEfficiencyRing strong { color: #fff; font-size: 30px; line-height: 1; }
+        .mobileEfficiencyRing small { margin-top: 5px; color: #cbd5e1; font-weight: 900; font-size: 11px; }
+        .mobileHeroStats { margin-top: 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+        .mobileHeroStats div { padding: 12px 8px; border-radius: 18px; background: rgba(15,23,42,.58); border: 1px solid rgba(255,255,255,.08); text-align: center; }
+        .mobileHeroStats strong { display: block; color: #fff; font-size: 21px; }
+        .mobileHeroStats span { display: block; margin-top: 3px; color: #94a3b8; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; }
+        .mobileKpiGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .mobileKpiCard { min-height: 122px; padding: 16px; border-radius: 26px; background: #f8fafc; color: #0f172a; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 18px 44px rgba(0,0,0,.18); }
+        .mobileKpiCard.orange { background: linear-gradient(145deg, #fb923c, #ea580c); color: white; }
+        .mobileKpiCard span { display: block; color: inherit; opacity: .72; font-size: 13px; font-weight: 1000; }
+        .mobileKpiCard strong { display: block; margin-top: 16px; font-size: 34px; line-height: .9; letter-spacing: -.05em; }
+        .mobileKpiCard small { display: block; margin-top: 11px; color: inherit; opacity: .66; font-weight: 800; }
+        .mobileSectionHead { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 0; }
+        .mobileSectionHead h2 { margin: 0; color: #fff; font-size: 22px; letter-spacing: -.03em; }
+        .mobileSectionHead span { color: #f97316; font-size: 12px; font-weight: 1000; text-transform: uppercase; letter-spacing: .08em; }
+        .mobileLiveList { display: grid; gap: 12px; }
+        .mobileLiveCard { padding: 16px; border-radius: 24px; background: rgba(17,24,39,.96); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 18px 44px rgba(0,0,0,.20); }
+        .mobileLiveTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .mobileLiveTop strong { display: block; color: #fff; font-size: 18px; }
+        .mobileLiveTop span { display: block; margin-top: 3px; color: #94a3b8; font-size: 12px; font-weight: 800; line-height: 1.25; }
+        .mobileLiveTop em { flex: 0 0 auto; font-style: normal; font-size: 11px; font-weight: 1000; text-transform: uppercase; letter-spacing: .08em; }
+        .mobileLiveCard h3 { margin: 14px 0 10px; color: #f8fafc; font-size: 20px; line-height: 1.1; letter-spacing: -.03em; }
+        .mobileProgressTrack.dark { background: rgba(255,255,255,.10) !important; }
+        .mobileLiveMeta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+        .mobileLiveMeta span { color: #cbd5e1; font-size: 12px; font-weight: 900; }
+        .darkEmpty { background: rgba(17,24,39,.96) !important; color: white !important; border: 1px solid rgba(255,255,255,.10); }
+        .darkEmpty h2 { color: white !important; }
+        .darkEmpty p { color: #94a3b8 !important; }
+
       }
     `}</style>
   );
@@ -904,6 +950,92 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
           <div className="mobileEmpty">
             <h2>No jobs here</h2>
             <p>Change tabs or add a new job from desktop.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
+function MobileDashboard({ jobs, ctx, metrics, selectedDate }) {
+  const currentMinute = getCurrentMinuteOfDay();
+  const activeStatuses = new Set(["In Progress", "Waiting", "QC"]);
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const completed = jobs.filter((j) => ctx.isComplete(j.status_id));
+  const activeJobs = openJobs.filter((j) => activeStatuses.has(ctx.status(j.status_id)?.name));
+  const scheduledJobs = openJobs.filter((j) => ctx.status(j.status_id)?.name === "Scheduled");
+  const capacity = Number(metrics.capacity || 0);
+  const efficiency = Number(metrics.efficiency || 0);
+  const dayLabel = selectedDate === todayIso()
+    ? new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
+    : selectedDate;
+
+  return (
+    <section className="mobileDashScreen">
+      <div className="mobileHeroCard">
+        <div className="mobileHeroTop">
+          <div>
+            <p>Live Production</p>
+            <h1>Today's Shop</h1>
+            <span>{dayLabel}</span>
+          </div>
+          <div className="mobileEfficiencyRing">
+            <strong className={effClass(efficiency)}>{Math.round(efficiency)}%</strong>
+            <small>Efficiency</small>
+          </div>
+        </div>
+        <div className="mobileHeroStats">
+          <div><strong>{capacity}%</strong><span>Capacity</span></div>
+          <div><strong>{activeJobs.length}</strong><span>Active</span></div>
+          <div><strong>{completed.length}</strong><span>Done</span></div>
+          <div><strong>{openJobs.length}</strong><span>Open</span></div>
+        </div>
+      </div>
+
+      <div className="mobileKpiGrid">
+        <div className="mobileKpiCard orange"><span>Shop Capacity</span><strong>{capacity}%</strong><small>Current workload</small></div>
+        <div className="mobileKpiCard"><span>Booked Open</span><strong>{openJobs.reduce((a, j) => a + Number(j.book_hours || 0), 0).toFixed(1)}h</strong><small>Remaining work</small></div>
+        <div className="mobileKpiCard"><span>Completed</span><strong>{completed.length}</strong><small>Jobs today</small></div>
+        <div className="mobileKpiCard"><span>Scheduled</span><strong>{scheduledJobs.length}</strong><small>Waiting to start</small></div>
+      </div>
+
+      <div className="mobileSectionHead">
+        <h2>Live Floor</h2>
+        <span>{activeJobs.length || 0} active</span>
+      </div>
+
+      <div className="mobileLiveList">
+        {(activeJobs.length ? activeJobs : openJobs).slice(0, 8).map((job) => {
+          const tech = ctx.tech(job.technician_id);
+          const status = ctx.status(job.status_id);
+          const timing = getMobileJobTiming(job, ctx, currentMinute);
+          const projected = getJobProjectedFinish(job, ctx);
+          return (
+            <article className="mobileLiveCard" key={job.id}>
+              <div className="mobileLiveTop">
+                <div>
+                  <strong>{tech?.name || "Unassigned"}</strong>
+                  <span>{ctx.jobProductsSummary(job)}</span>
+                </div>
+                <em style={{ color: status?.color || "#f97316" }}>{status?.name || "Open"}</em>
+              </div>
+              <h3>{job.vehicle || job.customer || "Shop Job"}</h3>
+              <div className="mobileProgressTrack dark" aria-label="Job progress">
+                <div className={`mobileProgressFill ${timing.progressClass}`} style={{ width: `${timing.progressPercent}%` }} />
+              </div>
+              <div className="mobileLiveMeta">
+                <span>{Number(job.book_hours || 0).toFixed(1)}h book</span>
+                <span>{timing.remainingLabel}</span>
+                <span>{formatTime(projected.finishTime)}</span>
+              </div>
+            </article>
+          );
+        })}
+        {!openJobs.length && (
+          <div className="mobileEmpty darkEmpty">
+            <h2>Shop is clear</h2>
+            <p>No open jobs scheduled for this date.</p>
           </div>
         )}
       </div>
