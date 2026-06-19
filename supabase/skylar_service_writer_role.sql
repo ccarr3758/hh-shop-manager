@@ -7,5 +7,4 @@ where lower(name) = 'skylar';
 
 update user_profiles
 set role = 'service_writer'
-where lower(full_name) = 'skylar'
-   or email ilike '%skylar%';
+where lower(full_name) = 'skylar';

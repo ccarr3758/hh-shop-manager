@@ -52,6 +52,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  const pwaInstall = usePwaInstall();
+
   async function loadAll() {
     setLoading(true);
     setCloudError("");
@@ -273,7 +275,12 @@ export default function ProductionManager({ authProfile, onSignOut }) {
               <h2>{view}</h2>
               <input className="phoneDatePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
+            <div className="phoneHeaderActions">
+              {pwaInstall.canInstall && (
+                <button className="phoneInstallButton" onClick={pwaInstall.install} aria-label="Install app">
+                  Install
+                </button>
+              )}
               <button className="phoneIconButton" onClick={loadAll} aria-label="Refresh">
                 <RefreshCw size={20} />
               </button>
@@ -331,6 +338,12 @@ export default function ProductionManager({ authProfile, onSignOut }) {
 
         {isMobile && (
           <>
+            {pwaInstall.showIosHint && (
+              <div className="phoneInstallHint">
+                To install: tap Share, then Add to Home Screen.
+                <button onClick={pwaInstall.dismissIosHint}>Got it</button>
+              </div>
+            )}
             <button className="phoneFab" onClick={() => setShowNewJob(true)} aria-label="New Job">
               <Plus size={26} />
             </button>
@@ -361,6 +374,62 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   );
 }
 
+
+
+function usePwaInstall() {
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(() => isRunningStandalone());
+  const [hideIosHint, setHideIosHint] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("hh-hide-ios-install-hint") === "1";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const onAppInstalled = () => {
+      setInstallPrompt(null);
+      setIsStandalone(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+
+  async function install() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => null);
+    setInstallPrompt(null);
+  }
+
+  function dismissIosHint() {
+    setHideIosHint(true);
+    if (typeof window !== "undefined") window.localStorage.setItem("hh-hide-ios-install-hint", "1");
+  }
+
+  const isiOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+
+  return {
+    canInstall: Boolean(installPrompt) && !isStandalone,
+    install,
+    showIosHint: isiOS && !isStandalone && !hideIosHint,
+    dismissIosHint,
+  };
+}
+
+function isRunningStandalone() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
 
 function MobileStyles() {
   return (
@@ -428,13 +497,16 @@ function MobileStyles() {
       .techClockRow b { color: #0f172a; }
       .techClockActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       @media (max-width: 768px) {
-        html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; }
-        body { background: #070d1c; }
+        html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; overscroll-behavior-y: none; }
+        body { background: #070d1c; -webkit-tap-highlight-color: transparent; }
+        button, input, select, textarea { font-size: 16px; }
         .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
-        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 74px !important; margin: 0 !important; }
-        .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(82px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
+        .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
         .phoneDatePicker { margin-top: 6px; height: 34px; border: 0; border-radius: 10px; padding: 0 10px; font-weight: 900; color: #0f172a; background: #f8fafc; }
+        .phoneHeaderActions { display: grid; gap: 8px; justify-items: end; }
+        .phoneInstallButton { min-height: 34px; border: 0; border-radius: 999px; padding: 0 12px; background: #f97316; color: #fff; font-size: 12px; font-weight: 1000; box-shadow: 0 8px 18px rgba(249,115,22,.28); }
         .phoneHeader .eyebrow { margin: 0 0 4px; color: #f97316; font-size: 10px; letter-spacing: .12em; font-weight: 900; text-transform: uppercase; }
         .phoneIconButton { width: 44px; height: 44px; border-radius: 14px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 8px 18px rgba(249,115,22,.3); }
         .mobileApp { padding: 10px 10px 0 !important; background: #070d1c; min-height: calc(100vh - 70px); }
@@ -471,12 +543,14 @@ function MobileStyles() {
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
-        .phoneBottomNav { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 100; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; padding: 5px; border-radius: 18px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 14px 30px rgba(0,0,0,.34); }
+        .phoneInstallHint { position: fixed; left: 10px; right: 10px; bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 120; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 16px; background: #fff7ed; color: #9a3412; border: 1px solid rgba(249,115,22,.3); box-shadow: 0 12px 30px rgba(0,0,0,.25); font-size: 12px; font-weight: 900; }
+        .phoneInstallHint button { border: 0; border-radius: 999px; padding: 8px 10px; background: #f97316; color: white; font-size: 12px; font-weight: 1000; }
+        .phoneBottomNav { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 100; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; padding: 5px; border-radius: 18px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 14px 30px rgba(0,0,0,.34); }
         .phoneBottomNav button { height: 48px; min-width: 0; border: 0; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: transparent; color: #94a3b8; font-size: 9px; font-weight: 900; padding: 0 2px; }
         .phoneBottomNav button svg { width: 17px; height: 17px; }
         .phoneBottomNav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .phoneBottomNav button.active { background: #f97316; color: white; }
-        .phoneFab { position: fixed; right: 18px; bottom: 78px; z-index: 110; width: 56px; height: 56px; border-radius: 20px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 14px 30px rgba(249,115,22,.42); }
+        .phoneFab { position: fixed; right: 18px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 110; width: 56px; height: 56px; border-radius: 20px; border: 0; display: grid; place-items: center; background: #f97316; color: white; box-shadow: 0 14px 30px rgba(249,115,22,.42); }
         .page { padding: 10px !important; }
         .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
         .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
@@ -4297,8 +4371,10 @@ function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const baseEfficiency = actualUsed ? (bookComplete / actualUsed) * 100 : 0;
   const availableTechCount = getCapacityTechnicianCount(ctx, selectedDate);
   const remainingBookHours = openJobs.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const openJobIds = new Set(openJobs.map((j) => j.id));
   const activeHelperBookHours = (ctx.jobHelpers || []).reduce((sum, helper) => {
     if (helper.scheduled_date !== selectedDate || !isActiveHelper(helper)) return sum;
+    if (helper.job_id && !openJobIds.has(helper.job_id)) return sum;
     return sum + getCappedHelperBookHours(helper, ctx);
   }, 0);
   const capacityHours = availableTechCount * 8;
@@ -5104,8 +5180,13 @@ function makeAccessFromProfile(profile) {
 }
 
 function normalizeRole(role) {
-  const value = String(role || "technician").toLowerCase();
-  if (value === "tech") return "technician";
+  const value = String(role || "technician")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (["tech", "installer", "production_tech", "production_technician"].includes(value)) return "technician";
+  if (["writer", "servicewriter", "service_writer", "service_advisor", "advisor"].includes(value)) return "service_writer";
   if (["admin", "manager", "foreman", "service_writer", "technician"].includes(value)) return value;
   return "technician";
 }
