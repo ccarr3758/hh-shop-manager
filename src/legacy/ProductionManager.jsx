@@ -347,9 +347,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
             <button className="phoneFab" onClick={() => setShowNewJob(true)} aria-label="New Job">
               <Plus size={26} />
             </button>
-            <nav className="phoneBottomNav">
+            <nav className="phoneBottomNav" aria-label="Mobile navigation">
               {[
-                ["Dashboard", LayoutDashboard, "Dash"],
+                ["Dashboard", LayoutDashboard, "Dashboard"],
                 ["Schedule", CalendarDays, "Schedule"],
                 ["Mobile Manager", Smartphone, "Floor"],
                 ["Production Log", ClipboardList, "Log"],
@@ -359,8 +359,10 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                   key={name}
                   className={view === name ? "active" : ""}
                   onClick={() => setView(name)}
+                  aria-label={label}
+                  title={label}
                 >
-                  <Icon size={20} />
+                  <Icon aria-hidden="true" />
                   <span>{label}</span>
                 </button>
               ))}
@@ -499,7 +501,7 @@ function MobileStyles() {
         body { background: #070d1c; -webkit-tap-highlight-color: transparent; }
         button, input, select, textarea { font-size: 16px; }
         .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
-        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(82px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(112px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
         .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
         .phoneDatePicker { margin-top: 6px; height: 34px; border: 0; border-radius: 10px; padding: 0 10px; font-weight: 900; color: #0f172a; background: #f8fafc; }
@@ -568,12 +570,15 @@ function MobileStyles() {
         .phoneDatePicker { height: 38px !important; border-radius: 16px !important; font-size: 18px !important; padding: 0 14px !important; box-shadow: 0 8px 22px rgba(255,255,255,.04); }
         .phoneHeaderActions { grid-template-columns: 1fr; gap: 8px !important; }
         .phoneIconButton { width: 48px !important; height: 48px !important; border-radius: 18px !important; background: rgba(248,250,252,.96) !important; color: #f97316 !important; box-shadow: 0 16px 34px rgba(249,115,22,.24) !important; }
-        .phoneBottomNav { left: 12px !important; right: 12px !important; bottom: calc(10px + env(safe-area-inset-bottom)) !important; border-radius: 24px !important; padding: 8px !important; background: rgba(15,23,42,.92) !important; border: 1px solid rgba(255,255,255,.14) !important; backdrop-filter: blur(18px); box-shadow: 0 18px 44px rgba(0,0,0,.45) !important; }
-        .phoneBottomNav button { border-radius: 18px !important; min-height: 58px !important; color: #94a3b8 !important; font-weight: 900 !important; }
-        .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; box-shadow: 0 10px 24px rgba(249,115,22,.35); }
-        .phoneFab { background: #f97316 !important; color: white !important; box-shadow: 0 18px 34px rgba(249,115,22,.38) !important; }
+        .phoneBottomNav { left: 14px !important; right: 14px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; min-height: 92px !important; border-radius: 30px !important; padding: 10px !important; gap: 8px !important; background: rgba(15,23,42,.94) !important; border: 1px solid rgba(255,255,255,.15) !important; backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,.48) !important; }
+        .phoneBottomNav button { position: relative; border-radius: 24px !important; min-height: 70px !important; color: #94a3b8 !important; font-weight: 900 !important; padding: 0 !important; gap: 0 !important; transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
+        .phoneBottomNav button svg { width: 32px !important; height: 32px !important; stroke-width: 2.35 !important; }
+        .phoneBottomNav button span { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
+        .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; transform: translateY(-3px) scale(1.04); box-shadow: 0 14px 30px rgba(249,115,22,.45); }
+        .phoneBottomNav button.active svg { width: 36px !important; height: 36px !important; }
+        .phoneFab { right: 18px !important; bottom: calc(112px + env(safe-area-inset-bottom)) !important; width: 62px !important; height: 62px !important; border-radius: 22px !important; background: #f97316 !important; color: white !important; box-shadow: 0 18px 34px rgba(249,115,22,.38) !important; }
 
-        .mobileDashScreen { padding: 16px 12px 98px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
+        .mobileDashScreen { padding: 16px 12px 128px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
         .mobileHeroCard { border-radius: 30px; padding: 20px; background: radial-gradient(circle at top left, rgba(249,115,22,.28), transparent 36%), linear-gradient(145deg, #172033, #253246); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 24px 60px rgba(0,0,0,.34); }
         .mobileHeroTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
         .mobileHeroTop p { margin: 0 0 8px; color: #f97316; font-size: 12px; font-weight: 1000; letter-spacing: .24em; text-transform: uppercase; }
