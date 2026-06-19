@@ -1388,7 +1388,7 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
         </div>
         <div className="heroMetric">
           <span>Shop efficiency</span>
-          <strong className={effClass(performanceStats.efficiency)}>{Math.round(performanceStats.efficiency)}%</strong>
+          <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
         </div>
       </div>
 
