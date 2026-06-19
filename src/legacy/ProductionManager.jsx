@@ -1140,7 +1140,8 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
     setHelperStartTime(getCurrentHelperStartTime());
   }, [selectedDate]);
 
-  if (role !== "technician" || !technicianId) return null;
+  const canSelfHelp = ["technician", "foreman"].includes(role);
+  if (!canSelfHelp || !technicianId) return null;
 
   const activeHelper = getHelperAssignmentForTech(technicianId, ctx, selectedDate);
   const activeHelperJob = activeHelper
