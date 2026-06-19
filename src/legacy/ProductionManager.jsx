@@ -204,6 +204,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
   const visibleJobs = useMemo(() => filterJobsForAccess(state.jobs, access), [state.jobs, access]);
   const dailyJobs = useMemo(() => jobsForDate(visibleJobs, selectedDate), [visibleJobs, selectedDate]);
+  const allDailyJobs = useMemo(() => jobsForDate(state.jobs, selectedDate), [state.jobs, selectedDate]);
   const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx, selectedDate), [dailyJobs, ctx, selectedDate]);
 
   useEffect(() => {
@@ -320,7 +321,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} access={access} />
 )}
         {view === "Mobile Manager" && (
-          <MobileManager jobs={dailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
+          <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
         {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
@@ -560,6 +561,15 @@ function MobileStyles() {
         .mobileDamageThumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 10px; }
         .mobileDamageThumbs a { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 12px; background: #fed7aa; border: 1px solid rgba(249,115,22,.25); }
         .mobileDamageThumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .mobileSelfHelperPanel { margin: 4px 0 12px; padding: 12px; border-radius: 16px; background: #f8fafc; border: 1px solid rgba(15,23,42,.12); }
+        .mobileSelfHelperPanel strong { display: block; color: #0f172a; font-size: 14px; }
+        .mobileSelfHelperPanel span { display: block; margin-top: 2px; color: #64748b; font-size: 11px; font-weight: 900; }
+        .mobileSelfHelperPanel select, .mobileSelfHelperPanel input { width: 100%; min-height: 42px; border-radius: 12px; border: 1px solid rgba(15,23,42,.14); padding: 0 10px; background: white; color: #0f172a; font-size: 14px; font-weight: 800; }
+        .mobileSelfHelperGrid { display: grid; grid-template-columns: 1fr 112px; gap: 8px; margin-top: 10px; }
+        .mobileSelfHelperActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+        .mobileSelfHelperActions button { min-height: 42px; border: 0; border-radius: 12px; background: #f97316; color: white; font-size: 13px; font-weight: 1000; }
+        .mobileSelfHelperActions button.secondary { background: #e2e8f0; color: #0f172a; }
+        .mobileSelfHelperActions button.stop { background: #dc2626; color: white; }
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
@@ -639,7 +649,7 @@ function MobileStyles() {
   );
 }
 
-function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access }) {
+function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selectedDate, access }) {
   const [filter, setFilter] = useState("Open");
   const currentMinute = useCurrentMinute();
 
@@ -858,6 +868,39 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
     await reload();
   }
 
+  async function selfStartHelping(job, helperStartTime) {
+    const techId = access?.technicianId;
+    if (!techId) return alert("This login is not linked to a technician profile.");
+    if (!job?.id) return alert("Select a job to help on.");
+    if (job.technician_id === techId) return alert("You are already the lead technician on that job.");
+
+    const currentHelper = getHelperAssignmentForTech(techId, ctx, selectedDate);
+    if (currentHelper) {
+      const currentJob = (allJobs || []).find((j) => j.id === currentHelper.job_id) || (ctx.jobs || []).find((j) => j.id === currentHelper.job_id);
+      return alert(`You are already helping ${getPrimaryTechNameForJob(currentJob, ctx)}. Stop helping first.`);
+    }
+
+    const activeLeadJob = (allJobs || []).find(
+      (j) =>
+        j.technician_id === techId &&
+        !ctx.isComplete(j.status_id) &&
+        ["In Progress", "Waiting", "QC"].includes(ctx.status(j.status_id)?.name)
+    );
+
+    if (activeLeadJob) {
+      const ok = window.confirm(`You are currently assigned to ${activeLeadJob.vehicle || "another job"}. Start helping anyway?`);
+      if (!ok) return;
+    }
+
+    await addHelperToJob(job, techId, helperStartTime || shortTime(new Date().toTimeString()));
+  }
+
+  async function selfStopHelping(helper) {
+    const job = (allJobs || []).find((j) => j.id === helper?.job_id) || (ctx.jobs || []).find((j) => j.id === helper?.job_id);
+    if (!job) return alert("Could not find the job for this helper session.");
+    await endHelperOnJob(helper, job);
+  }
+
   async function endHelperOnJob(helper, job) {
     const endTime = shortTime(new Date().toTimeString());
     const actualHours = calculateWorkingHoursBetween(helper.start_time, endTime, ctx);
@@ -1042,6 +1085,15 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
               </div>
 
               <DamagePhotoPanel job={job} ctx={ctx} onUpload={uploadDamagePhotos} />
+              <SelfHelpPanel
+                job={job}
+                allJobs={allJobs}
+                ctx={ctx}
+                access={access}
+                selectedDate={selectedDate}
+                onStartHelping={selfStartHelping}
+                onStopHelping={selfStopHelping}
+              />
 
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
@@ -1077,6 +1129,86 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
   );
 }
 
+
+function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHelping, onStopHelping }) {
+  const role = normalizeRole(access?.role);
+  const technicianId = access?.technicianId;
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [helperStartTime, setHelperStartTime] = useState(() => getCurrentHelperStartTime());
+
+  useEffect(() => {
+    setHelperStartTime(getCurrentHelperStartTime());
+  }, [selectedDate]);
+
+  if (role !== "technician" || !technicianId) return null;
+
+  const activeHelper = getHelperAssignmentForTech(technicianId, ctx, selectedDate);
+  const activeHelperJob = activeHelper
+    ? (allJobs || []).find((j) => j.id === activeHelper.job_id) || (ctx.jobs || []).find((j) => j.id === activeHelper.job_id)
+    : null;
+
+  const helperOptions = sortJobsByEarliestStart(
+    (allJobs || [])
+      .filter((candidate) => !ctx.isComplete(candidate.status_id))
+      .filter((candidate) => candidate.technician_id !== technicianId)
+      .filter((candidate) => ["Scheduled", "In Progress", "Waiting", "QC"].includes(ctx.status(candidate.status_id)?.name))
+  );
+
+  if (activeHelper) {
+    return (
+      <div className="mobileSelfHelperPanel">
+        <strong>Helping {getPrimaryTechNameForJob(activeHelperJob, ctx)}</strong>
+        <span>{activeHelperJob?.vehicle || "Active helper session"} • Started {formatTime(activeHelper.start_time)}</span>
+        <div className="mobileSelfHelperActions">
+          <button className="stop" onClick={() => onStopHelping(activeHelper)}>Stop Helping</button>
+          <button className="secondary" onClick={() => setSelectedJobId(activeHelper.job_id)}>View Job</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (job?.technician_id === technicianId && helperOptions.length === 0) return null;
+
+  return (
+    <div className="mobileSelfHelperPanel">
+      <strong>Help Another Tech</strong>
+      <span>Start time defaults to now. Change it if you are backlogging.</span>
+      <div className="mobileSelfHelperGrid">
+        <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
+          <option value="">Select job</option>
+          {helperOptions.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {formatTime(candidate.start_time)} • {ctx.tech(candidate.technician_id)?.name || "Unassigned"} • {candidate.vehicle || candidate.customer || "Job"}
+            </option>
+          ))}
+        </select>
+        <input type="time" value={helperStartTime} onChange={(event) => setHelperStartTime(event.target.value)} />
+      </div>
+      <div className="mobileSelfHelperActions">
+        <button
+          onClick={() => {
+            const targetJob = helperOptions.find((candidate) => candidate.id === selectedJobId);
+            if (!targetJob) return alert("Select the job you are helping on.");
+            onStartHelping(targetJob, helperStartTime || getCurrentHelperStartTime());
+            setSelectedJobId("");
+            setHelperStartTime(getCurrentHelperStartTime());
+          }}
+        >
+          Start Helping
+        </button>
+        <button
+          className="secondary"
+          onClick={() => {
+            setSelectedJobId("");
+            setHelperStartTime(getCurrentHelperStartTime());
+          }}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function DamagePhotoPanel({ job, ctx, onUpload }) {
   const photos = (ctx.damagePhotos || [])
