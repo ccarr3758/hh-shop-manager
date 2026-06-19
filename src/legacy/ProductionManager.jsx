@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ClipboardList,
   Database,
+  ImagePlus,
   Edit3,
   LayoutDashboard,
   Plus,
@@ -81,6 +82,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         comebackReworkResult,
         auditLogResult,
         accessLogResult,
+        damagePhotosResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -96,6 +98,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchOptionalComebackRework(companyId),
         fetchOptionalAuditLogs(companyId),
         fetchOptionalAccessLogs(companyId),
+        fetchOptionalDamagePhotos(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -114,6 +117,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         comebackRework: comebackReworkResult || [],
         auditLogs: auditLogResult || [],
         accessLogs: accessLogResult || [],
+        damagePhotos: damagePhotosResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -182,6 +186,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "access_logs", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "job_damage_photos", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -541,6 +550,16 @@ function MobileStyles() {
         .mobileMetaGrid div { padding: 12px !important; border-radius: 14px !important; background: #eef2f7 !important; }
         .mobileMetaGrid span { font-size: 10px !important; font-weight: 900; letter-spacing: .1em; color: #64748b !important; text-transform: uppercase; }
         .mobileMetaGrid strong { display: block; font-size: 16px !important; color: #0f172a; margin-top: 2px; }
+
+        .mobileDamagePanel { margin: 4px 0 12px; padding: 12px; border-radius: 16px; background: #fff7ed; border: 1px solid rgba(249,115,22,.22); }
+        .mobileDamageHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .mobileDamageHead strong { display: block; color: #9a3412; font-size: 14px; }
+        .mobileDamageHead span { display: block; margin-top: 2px; color: #c2410c; font-size: 11px; font-weight: 900; }
+        .mobileDamageUpload { position: relative; overflow: hidden; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 12px; background: #f97316; color: white; font-size: 12px; font-weight: 1000; cursor: pointer; box-shadow: 0 10px 20px rgba(249,115,22,.24); }
+        .mobileDamageUpload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+        .mobileDamageThumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 10px; }
+        .mobileDamageThumbs a { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 12px; background: #fed7aa; border: 1px solid rgba(249,115,22,.25); }
+        .mobileDamageThumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
@@ -625,10 +644,11 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
   const currentMinute = useCurrentMinute();
 
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
-  const shownJobs =
+  const shownJobs = sortJobsByEarliestStart(
     filter === "Open"
       ? openJobs
-      : jobs.filter((j) => ctx.status(j.status_id)?.name === filter);
+      : jobs.filter((j) => ctx.status(j.status_id)?.name === filter)
+  );
 
   const getStatusId = (name) =>
     ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
@@ -878,6 +898,63 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
     await reload();
   }
 
+  async function uploadDamagePhotos(job, fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    const note = window.prompt("Damage note / location on truck (example: scratch on driver bedside)", "Pre-install damage noticed");
+    if (note === null) return;
+
+    for (const file of files) {
+      if (!file.type?.startsWith("image/")) {
+        alert(`${file.name} is not an image.`);
+        continue;
+      }
+
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${ctx.company.id}/${job.id}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("truck-damage-photos")
+        .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type || "image/jpeg" });
+
+      if (uploadError) {
+        alert(`Photo upload failed: ${uploadError.message}. Make sure supabase/pre_install_damage_photos.sql has been run.`);
+        return;
+      }
+
+      const { data: publicData } = supabase.storage.from("truck-damage-photos").getPublicUrl(path);
+
+      const row = {
+        company_id: ctx.company.id,
+        job_id: job.id,
+        uploaded_by: access?.fullName || access?.email || access?.role || "Unknown",
+        note: note || "Pre-install damage noticed",
+        storage_path: path,
+        public_url: publicData?.publicUrl || null,
+        file_name: file.name,
+        file_type: file.type || null,
+        file_size: file.size || null,
+      };
+
+      const { error: insertError } = await supabase.from("job_damage_photos").insert(row);
+      if (insertError) {
+        alert(`Damage log failed: ${insertError.message}. Make sure supabase/pre_install_damage_photos.sql has been run.`);
+        return;
+      }
+    }
+
+    await logAuditEvent(ctx, access, {
+      action: "Pre-install damage photos uploaded",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${files.length} damage photo${files.length === 1 ? "" : "s"} uploaded for ${job.vehicle || "job"}`,
+      metadata: { job_id: job.id, photo_count: files.length, note },
+    });
+    notifyUser(`${files.length} damage photo${files.length === 1 ? "" : "s"} uploaded`);
+    await reload();
+  }
+
   return (
     <section className="mobileApp">
       <header className="mobileAppHeader">
@@ -961,6 +1038,8 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
                 </div>
               </div>
 
+              <DamagePhotoPanel job={job} ctx={ctx} onUpload={uploadDamagePhotos} />
+
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
                 <button onClick={() => editJobStartTime(job)}>Edit Start</button>
@@ -992,6 +1071,46 @@ function MobileManager({ jobs, ctx, reload, setEditingJob, selectedDate, access 
         )}
       </div>
     </section>
+  );
+}
+
+
+function DamagePhotoPanel({ job, ctx, onUpload }) {
+  const photos = (ctx.damagePhotos || [])
+    .filter((photo) => photo.job_id === job.id)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return (
+    <div className="mobileDamagePanel">
+      <div className="mobileDamageHead">
+        <div>
+          <strong>Pre-install Damage</strong>
+          <span>{photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} logged` : "No photos logged"}</span>
+        </div>
+        <label className="mobileDamageUpload">
+          <ImagePlus size={18} /> Upload
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            onChange={(event) => {
+              onUpload(job, event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {photos.length > 0 && (
+        <div className="mobileDamageThumbs">
+          {photos.slice(0, 4).map((photo) => (
+            <a key={photo.id || photo.storage_path} href={photo.public_url} target="_blank" rel="noreferrer" title={photo.note || "Damage photo"}>
+              <img src={photo.public_url} alt={photo.note || "Pre-install damage"} loading="lazy" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4524,6 +4643,22 @@ async function fetchOptionalAccessLogs(companyId) {
   return data || [];
 }
 
+async function fetchOptionalDamagePhotos(companyId) {
+  const { data, error } = await supabase
+    .from("job_damage_photos")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("job_damage_photos")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
 async function logAuditEvent(ctx, access, { action, entityType, entityId, summary, metadata = {} }) {
   if (!supabase || !ctx?.company?.id) return;
 
@@ -4653,6 +4788,7 @@ function makeContext(state) {
     comebackRework: state.comebackRework || [],
     auditLogs: state.auditLogs || [],
     accessLogs: state.accessLogs || [],
+    damagePhotos: state.damagePhotos || [],
   };
 }
 
@@ -4671,6 +4807,7 @@ function emptyState() {
     comebackRework: [],
     auditLogs: [],
     accessLogs: [],
+    damagePhotos: [],
     shopSettings: null,
     jobs: [],
   };
@@ -4728,6 +4865,24 @@ function buildTimeSlots(open, close) {
 function shortTime(value) {
   if (!value) return "08:00";
   return String(value).slice(0, 5);
+}
+
+function timeToSortMinutes(value) {
+  const [h, m] = shortTime(value || "23:59").split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 1439;
+  return h * 60 + m;
+}
+
+function getJobStartSortMinutes(job) {
+  return timeToSortMinutes(job?.start_time || getEffectiveJobStartTime(job));
+}
+
+function sortJobsByEarliestStart(jobs = []) {
+  return [...jobs].sort((a, b) => {
+    const startDiff = getJobStartSortMinutes(a) - getJobStartSortMinutes(b);
+    if (startDiff) return startDiff;
+    return String(a.vehicle || a.customer || "").localeCompare(String(b.vehicle || b.customer || ""));
+  });
 }
 
 function getJobStartedAt(job) {
