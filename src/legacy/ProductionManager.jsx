@@ -323,7 +323,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -1024,6 +1024,16 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       </div>
 
       <div className="mobileJobList">
+        <SelfHelpPanel
+          job={null}
+          allJobs={allJobs}
+          ctx={ctx}
+          access={access}
+          selectedDate={selectedDate}
+          onStartHelping={selfStartHelping}
+          onStopHelping={selfStopHelping}
+        />
+
         {shownJobs.map((job) => {
           const productName = ctx.jobProductsSummary(job);
           const tech = ctx.tech(job.technician_id);
@@ -1085,16 +1095,6 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
               </div>
 
               <DamagePhotoPanel job={job} ctx={ctx} onUpload={uploadDamagePhotos} />
-              <SelfHelpPanel
-                job={job}
-                allJobs={allJobs}
-                ctx={ctx}
-                access={access}
-                selectedDate={selectedDate}
-                onStartHelping={selfStartHelping}
-                onStopHelping={selfStopHelping}
-              />
-
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
                 <button onClick={() => editJobStartTime(job)}>Edit Start</button>
@@ -1121,7 +1121,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
         {!shownJobs.length && (
           <div className="mobileEmpty">
             <h2>No jobs here</h2>
-            <p>Change tabs or add a new job from desktop.</p>
+            <p>Change tabs or use Help Another Tech when another technician has an open job.</p>
           </div>
         )}
       </div>
@@ -1251,7 +1251,7 @@ function DamagePhotoPanel({ job, ctx, onUpload }) {
 }
 
 
-function MobileDashboard({ jobs, ctx, metrics, selectedDate }) {
+function MobileDashboard({ jobs, ctx, metrics, selectedDate, access }) {
   const currentMinute = getCurrentMinuteOfDay();
   const activeStatuses = new Set(["In Progress", "Waiting", "QC"]);
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
@@ -1263,14 +1263,21 @@ function MobileDashboard({ jobs, ctx, metrics, selectedDate }) {
   const dayLabel = selectedDate === todayIso()
     ? new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
     : selectedDate;
+  const role = normalizeRole(access?.role);
+  const isFloorUser = ["technician", "foreman"].includes(role);
+  const techName = access?.technicianId ? ctx.tech(access.technicianId)?.name : "";
+  const displayName = (techName || access?.fullName || access?.email || "").trim();
+  const firstName = (displayName.split(/\s+/)[0] || "").toUpperCase();
+  const heroEyebrow = isFloorUser ? `Welcome back${firstName ? ` ${firstName}` : ""}` : "Live Production";
+  const heroTitle = isFloorUser ? "My Daily Stats" : "Today's Shop";
 
   return (
     <section className="mobileDashScreen">
       <div className="mobileHeroCard">
         <div className="mobileHeroTop">
           <div>
-            <p>Live Production</p>
-            <h1>Today's Shop</h1>
+            <p>{heroEyebrow}</p>
+            <h1>{heroTitle}</h1>
             <span>{dayLabel}</span>
           </div>
           <div className="mobileEfficiencyRing">
@@ -1349,7 +1356,7 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
         </div>
         <div className="heroMetric">
           <span>Shop efficiency</span>
-          <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
+          <strong className={effClass(performanceStats.efficiency)}>{Math.round(performanceStats.efficiency)}%</strong>
         </div>
       </div>
 
@@ -2341,8 +2348,11 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
   }, [canViewDevelopment, performanceMode]);
 
   const selectedTech = ctx.tech(selectedTechId) || activeTechs[0];
-  const shopRows = buildProductPerformanceRows(jobs, ctx, null);
-  const techRows = buildProductPerformanceRows(jobs, ctx, selectedTech?.id);
+  const performanceWeekStart = currentWeekStartIso();
+  const performanceWeekJobs = currentWeekCompletedJobs(jobs, ctx);
+  const performanceStats = getTechStats(performanceWeekJobs, ctx, null, { sinceDate: performanceWeekStart });
+  const shopRows = buildProductPerformanceRows(performanceWeekJobs, ctx, null);
+  const techRows = buildProductPerformanceRows(performanceWeekJobs, ctx, selectedTech?.id);
 
   return (
     <section className="page">
@@ -2359,11 +2369,11 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
           </div>
           <div>
             <span>Avg Job Time</span>
-            <strong>{metrics.avgActualTime.toFixed(2)}h</strong>
+            <strong>{performanceStats.avgActual.toFixed(2)}h</strong>
           </div>
           <div>
             <span>Completed</span>
-            <strong>{metrics.completedJobs}</strong>
+            <strong>{performanceStats.completedJobs}</strong>
           </div>
         </div>
       </div>
@@ -2393,15 +2403,15 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
                   </select>
                 </label>
               </div>
-              {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={jobs} ctx={ctx} rows={techRows} />}
+              {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={performanceWeekJobs} ctx={ctx} rows={techRows} statsOptions={{ sinceDate: performanceWeekStart }} />}
             </Panel>
 
-            <Panel title="Monthly Leaderboard" chip={currentMonthLabel()}>
-              <TechLeaderboard jobs={jobs} ctx={ctx} detailed monthly />
+            <Panel title="Weekly Leaderboard" chip={currentWeekLabel()}>
+              <TechLeaderboard jobs={performanceWeekJobs} ctx={ctx} detailed statsOptions={{ sinceDate: performanceWeekStart }} />
             </Panel>
           </div>
 
-          <Panel title="Average Job Times by Product" chip="Shop averages">
+          <Panel title="Average Job Times by Product" chip="This week">
             <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
           </Panel>
         </>
@@ -2410,8 +2420,8 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
   );
 }
 
-function TechnicianDashboard({ technician, jobs, ctx, rows }) {
-  const stats = getTechStats(jobs, ctx, technician.id);
+function TechnicianDashboard({ technician, jobs, ctx, rows, statsOptions = {} }) {
+  const stats = getTechStats(jobs, ctx, technician.id, statsOptions);
   const records = rows
     .filter((r) => r.jobs > 0 && r.bestTime !== null)
     .sort((a, b) => a.bestTime - b.bestTime)
@@ -4653,11 +4663,11 @@ function StatusPill({ status }) {
   );
 }
 
-function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
+function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false, statsOptions = {} }) {
   const sourceJobs = monthly ? currentMonthCompletedJobs(jobs, ctx) : jobs;
   const rows = ctx.technicians
     .map((tech) => {
-      const stats = getTechStats(sourceJobs, ctx, tech.id, { monthly });
+      const stats = getTechStats(sourceJobs, ctx, tech.id, { monthly, ...statsOptions });
       return { tech, stats, savedHours: stats.bookHours - stats.actualHours };
     })
     .sort((a, b) => {
@@ -4666,7 +4676,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false }) {
       return b.stats.bookHours - a.stats.bookHours;
     });
 
-  const shopStats = getTechStats(sourceJobs, ctx, null, { monthly });
+  const shopStats = getTechStats(sourceJobs, ctx, null, { monthly, ...statsOptions });
   const best = rows.find((row) => row.stats.completedJobs > 0);
 
   return (
@@ -4713,6 +4723,39 @@ function currentMonthCompletedJobs(jobs, ctx) {
     if (Number.isNaN(d.getTime())) return false;
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   });
+}
+
+function currentWeekStartDate(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function currentWeekStartIso(date = new Date()) {
+  return toIsoDate(currentWeekStartDate(date));
+}
+
+function currentWeekCompletedJobs(jobs, ctx) {
+  const start = currentWeekStartDate();
+  return jobs.filter((job) => {
+    if (!ctx.isComplete(job.status_id)) return false;
+    const completedAt = job.production_completed_at || job.updated_at || job.created_at;
+    if (!completedAt) return false;
+    const d = new Date(completedAt);
+    if (Number.isNaN(d.getTime())) return false;
+    return d >= start;
+  });
+}
+
+function currentWeekLabel() {
+  const start = currentWeekStartDate();
+  const end = addDays(start, 6);
+  const startLabel = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const endLabel = end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${startLabel}–${endLabel}`;
 }
 
 function currentMonthLabel() {
