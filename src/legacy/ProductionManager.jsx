@@ -208,7 +208,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   if (loading) {
     return (
       <div className="loading">
-        <div className="brandLogo">H&H</div>
+        <img className="brandLogo" src="/brand/hh-shield.png" alt="H&H" />
         <h2>Loading production manager...</h2>
       </div>
     );
@@ -238,7 +238,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       {!isMobile && (
       <aside className="sidebar">
         <div className="brand">
-          <div className="brandLogo">H&H</div>
+          <img className="brandLogo" src="/brand/hh-shield.png" alt="H&H" />
           <div>
             <h1>Production Manager</h1>
             <p>Live cloud shop command center</p>
@@ -271,7 +271,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {isMobile ? (
           <header className="phoneHeader">
             <div>
-              <p className="eyebrow">H&H Truck & Outdoor</p>
+              <img className="phoneHeaderLogo" src="/brand/hh-shield.png" alt="H&H" />
               <h2>{view}</h2>
               <input className="phoneDatePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
             </div>
@@ -292,7 +292,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         ) : (
           <header className="topbar">
             <div>
-              <p className="eyebrow">H&H Truck & Outdoor</p>
+              <img className="topbarLogo" src="/brand/hh-shield.png" alt="H&H" />
               <h2>{view}</h2>
             </div>
             <div className="topActions">
@@ -504,6 +504,8 @@ function MobileStyles() {
         .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(112px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
         .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
+        .phoneHeaderLogo { display: block; width: 100px; max-height: 48px; object-fit: contain; margin: 0 0 4px; border-radius: 8px; }
+        .topbarLogo { display: block; width: 96px; height: auto; object-fit: contain; margin: 0 0 5px; }
         .phoneDatePicker { margin-top: 6px; height: 34px; border: 0; border-radius: 10px; padding: 0 10px; font-weight: 900; color: #0f172a; background: #f8fafc; }
         .phoneHeaderActions { display: grid; gap: 8px; justify-items: end; }
         .phoneInstallButton { min-height: 34px; border: 0; border-radius: 999px; padding: 0 12px; background: #f97316; color: #fff; font-size: 12px; font-weight: 1000; box-shadow: 0 8px 18px rgba(249,115,22,.28); }
@@ -5430,7 +5432,7 @@ function AccessGate({ technicians, onSave }) {
   return (
     <div className="accessGate">
       <form className="accessPanel" onSubmit={submit}>
-        <div className="brandLogo">H&H</div>
+        <img className="brandLogo" src="/brand/hh-shield.png" alt="H&H" />
         <h1>Production Access</h1>
         <p className="muted">Choose the mode for this device. For full security, connect this to Supabase Auth before multi-store rollout.</p>
         <label>

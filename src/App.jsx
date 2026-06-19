@@ -97,7 +97,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="loading">
-        <div className="brandLogo">H&H</div>
+        <img className="brandLogo" src="/brand/hh-shield.png" alt="H&H" />
         <h2>Loading account...</h2>
       </div>
     );
@@ -109,7 +109,7 @@ export default function App() {
     return (
       <div className="accessGate">
         <div className="accessPanel">
-          <div className="brandLogo">H&H</div>
+          <img className="brandLogo" src="/brand/hh-shield.png" alt="H&H" />
           <h1>Account Setup Needed</h1>
           <p className="bad">{error || "No user profile found."}</p>
           <button className="primary wide" onClick={handleSignOut}>Sign Out</button>

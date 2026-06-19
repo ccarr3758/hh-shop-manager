@@ -853,3 +853,42 @@ button:not(.primary):not(.sidebarButton) {
   display: grid;
   gap: 14px;
 }
+
+/* H&H shield branding */
+.brandLogo {
+  object-fit: contain !important;
+  padding: 4px !important;
+  background: #020617 !important;
+  border: 1px solid rgba(255, 214, 0, .35) !important;
+  letter-spacing: 0 !important;
+}
+.loginLogo {
+  display: block;
+  width: 150px;
+  max-width: 70%;
+  height: auto;
+  margin: 0 auto 12px;
+  border-radius: 18px;
+  background: #000;
+}
+.phoneHeaderLogo {
+  display: block;
+  width: 96px;
+  height: auto;
+  max-height: 48px;
+  object-fit: contain;
+  margin: 0 0 6px;
+}
+.topbarLogo {
+  display: block;
+  width: 92px;
+  height: auto;
+  object-fit: contain;
+  margin: 0 0 6px;
+}
+.loading .brandLogo,
+.accessPanel .brandLogo {
+  width: 120px !important;
+  height: 90px !important;
+  border-radius: 20px !important;
+}

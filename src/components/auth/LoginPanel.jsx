@@ -19,6 +19,7 @@ export default function LoginPanel() {
   return (
     <div className="accessGate">
       <form className="accessPanel" onSubmit={submit}>
+        <img className="loginLogo" src="/brand/hh-shield.png" alt="H&H" />
         <h1>H&H Production Manager</h1>
         <p className="muted">Sign in with your shop account.</p>
         <label>
