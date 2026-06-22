@@ -1392,15 +1392,20 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
                 {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
                 {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
-                {ctx.status(job.status_id)?.name === "Paused" && (
-                  <button
-                    disabled={Boolean(getPendingExtensionRequest(job))}
-                    onClick={() => requestRoadblockExtension(job)}
-                  >
-                    {getPendingExtensionRequest(job) ? "Extension Requested" : "Request Extension"}
-                  </button>
-                )}
-                <button onClick={() => updateStatus(job, "QC")}>QC</button>
+                <button
+                  disabled={ctx.status(job.status_id)?.name === "Paused" && Boolean(getPendingExtensionRequest(job))}
+                  onClick={() => {
+                    if (ctx.status(job.status_id)?.name === "Paused") {
+                      requestRoadblockExtension(job);
+                    } else {
+                      pauseJob(job);
+                    }
+                  }}
+                >
+                  {ctx.status(job.status_id)?.name === "Paused"
+                    ? (getPendingExtensionRequest(job) ? "Extension Requested" : "Request Extension")
+                    : "Roadblock"}
+                </button>
                 <button onClick={() => setEditingJob(job)}>{canEditJobs(access) ? "Edit" : "Job Details"}</button>
                 {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
                 <button className="complete" onClick={() => completeJob(job)}>
