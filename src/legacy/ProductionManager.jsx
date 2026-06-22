@@ -47,6 +47,9 @@ const navGroups = [
   ["System", ["Admin", "Cloud Status"]],
 ];
 
+const LIVE_REFRESH_MS = 3000;
+
+
 function getNavIcon(name) {
   return nav.find(([navName]) => navName === name)?.[1] || LayoutDashboard;
 }
@@ -63,6 +66,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const notifiedRealtimeIds = useRef(new Set());
   const notificationPollSeeded = useRef(false);
   const notificationPollRunning = useRef(false);
+  const liveRefreshRunning = useRef(false);
   const notificationAudioRef = useRef(null);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
@@ -228,6 +232,21 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "statuses", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "delay_reasons", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "shop_settings", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
         (payload) => {
           const notification = payload.new;
@@ -241,7 +260,14 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
-        loadAll
+        (payload) => {
+          const notification = payload.new;
+          if (notification?.id && !notifiedRealtimeIds.current.has(notification.id) && canReceiveNotification(notification, access)) {
+            notifiedRealtimeIds.current.add(notification.id);
+            notifyRealtimeNotification(notification);
+          }
+          loadAll();
+        }
       )
       .subscribe();
 
@@ -253,67 +279,96 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   useEffect(() => {
     if (!supabase || !state.company?.id) return undefined;
 
-    const role = normalizeRole(access?.role);
-    const shouldPoll = ["admin", "manager", "foreman"].includes(role);
-    if (!shouldPoll) return undefined;
-
     let cancelled = false;
 
-    async function pollForManagerNotifications({ silent = false } = {}) {
-      if (notificationPollRunning.current) return;
-      notificationPollRunning.current = true;
+    async function refreshLiveData({ silent = false } = {}) {
+      if (liveRefreshRunning.current) return;
+      liveRefreshRunning.current = true;
 
       try {
-        const notifications = await fetchOptionalNotifications(state.company.id);
+        const companyId = state.company.id;
+        const [
+          jobs,
+          jobProducts,
+          jobHelpers,
+          technicianAttendance,
+          comebackRework,
+          auditLogs,
+          damagePhotos,
+          notifications,
+        ] = await Promise.all([
+          fetchJobs(companyId),
+          fetchTable("job_products", companyId),
+          fetchOptionalJobHelpers(companyId),
+          fetchOptionalTechnicianAttendance(companyId),
+          fetchOptionalComebackRework(companyId),
+          fetchOptionalAuditLogs(companyId),
+          fetchOptionalDamagePhotos(companyId),
+          fetchOptionalNotifications(companyId),
+        ]);
         if (cancelled) return;
 
-        const visibleNotifications = (notifications || []).filter((notification) => canReceiveNotification(notification, access));
-        const pendingRoadblockRequests = visibleNotifications.filter(isPendingRoadblockExtensionRequest);
+        const visibleNotifications = (notifications || [])
+          .filter((notification) => canReceiveNotification(notification, access))
+          .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 
         if (!notificationPollSeeded.current) {
           visibleNotifications.forEach((notification) => {
             if (notification?.id) notifiedRealtimeIds.current.add(notification.id);
           });
           notificationPollSeeded.current = true;
-          setState((current) => ({ ...current, notifications }));
-          return;
+        } else {
+          const newNotifications = visibleNotifications.filter(
+            (notification) => notification?.id && !notifiedRealtimeIds.current.has(notification.id)
+          );
+          newNotifications.forEach((notification) => {
+            notifiedRealtimeIds.current.add(notification.id);
+            if (!silent) notifyRealtimeNotification(notification);
+          });
         }
 
-        const newRequests = pendingRoadblockRequests
-          .filter((notification) => notification?.id && !notifiedRealtimeIds.current.has(notification.id))
-          .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
-
-        newRequests.forEach((notification) => {
-          notifiedRealtimeIds.current.add(notification.id);
-          if (!silent) notifyRealtimeNotification(notification);
-        });
-
-        setState((current) => ({ ...current, notifications }));
+        setState((current) => ({
+          ...current,
+          jobs: jobs || current.jobs,
+          jobProducts: jobProducts || current.jobProducts,
+          jobHelpers: jobHelpers || current.jobHelpers,
+          technicianAttendance: technicianAttendance || current.technicianAttendance,
+          comebackRework: comebackRework || current.comebackRework,
+          auditLogs: auditLogs || current.auditLogs,
+          damagePhotos: damagePhotos || current.damagePhotos,
+          notifications: notifications || [],
+        }));
       } catch (error) {
-        console.warn("Notification polling failed", error);
+        console.warn("Live refresh failed", error);
       } finally {
-        notificationPollRunning.current = false;
+        liveRefreshRunning.current = false;
       }
     }
 
-    pollForManagerNotifications({ silent: true });
-    const intervalId = window.setInterval(() => pollForManagerNotifications(), 5000);
+    refreshLiveData({ silent: true });
+    const intervalId = window.setInterval(() => refreshLiveData(), LIVE_REFRESH_MS);
 
-    const handleFocus = () => pollForManagerNotifications();
+    const handleFocus = () => refreshLiveData();
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") pollForManagerNotifications();
+      if (document.visibilityState === "visible") refreshLiveData();
     };
+    const handleOnline = () => refreshLiveData();
+    const handlePageShow = () => refreshLiveData();
 
     window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("pageshow", handlePageShow);
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("pageshow", handlePageShow);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [state.company?.id, access?.role, access?.technicianId]);
+  }, [state.company?.id, access?.role, access?.technicianId, access?.email, access?.fullName]);
 
   const ctx = useMemo(() => makeContext(state), [state]);
   const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
@@ -2687,20 +2742,26 @@ function TechnicianClock({ ctx, reload, selectedDate }) {
 
 
 function NotificationsCenter({ ctx, access, reload }) {
-  const notifications = (ctx.notifications || [])
+  const visibleNotifications = (ctx.notifications || [])
     .filter((notification) => canReceiveNotification(notification, access))
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  const pendingRoadblockRequests = notifications.filter(isPendingRoadblockExtensionRequest);
-  const regularNotifications = notifications.filter((notification) => !isPendingRoadblockExtensionRequest(notification));
+  const pendingRoadblockRequests = visibleNotifications.filter(isPendingRoadblockExtensionRequest);
+  const regularNotifications = visibleNotifications.filter(
+    (notification) => !isPendingRoadblockExtensionRequest(notification) && !getNotificationRead(notification, access)
+  );
+  const displayCount = pendingRoadblockRequests.length + regularNotifications.length;
 
   return (
-    <Panel title="Notifications" chip={`${notifications.length} alerts`}>
+    <Panel title="Notifications" chip={`${displayCount} alerts`}>
       <div className="notificationPermissionRow">
         <div>
           <strong>Desktop alerts</strong>
           <span>{getNotificationPermissionLabel()}</span>
         </div>
-        <button className="primary" onClick={enableHhNotifications}>Enable Notifications</button>
+        <div className="rowActions">
+          <button className="primary" onClick={enableHhNotifications}>Enable Notifications</button>
+          <button onClick={() => clearVisibleNotifications(ctx, access, visibleNotifications, reload)}>Clear Notifications</button>
+        </div>
       </div>
       <div className="notificationList">
         {pendingRoadblockRequests.map((notification) => (
@@ -2712,20 +2773,17 @@ function NotificationsCenter({ ctx, access, reload }) {
             reload={reload}
           />
         ))}
-        {regularNotifications.map((notification) => {
-          const read = getNotificationRead(notification, access);
-          return (
-            <div className={`notificationCard ${read ? "read" : "unread"}`} key={notification.id}>
-              <div>
-                <strong>{notification.title}</strong>
-                <p>{notification.body}</p>
-                <span>{notification.created_at ? new Date(notification.created_at).toLocaleString() : ""}</span>
-              </div>
-              {!read && <button onClick={() => markNotificationRead(ctx, access, notification, reload)}>Mark Read</button>}
+        {regularNotifications.map((notification) => (
+          <div className="notificationCard unread" key={notification.id}>
+            <div>
+              <strong>{notification.title}</strong>
+              <p>{notification.body}</p>
+              <span>{notification.created_at ? new Date(notification.created_at).toLocaleString() : ""}</span>
             </div>
-          );
-        })}
-        {!notifications.length && <div className="emptyState"><h2>No notifications</h2><p>Status changes, assigned jobs, helper changes, streaks, and records will appear here.</p></div>}
+            <button onClick={() => markNotificationRead(ctx, access, notification, reload)}>Clear</button>
+          </div>
+        ))}
+        {!displayCount && <div className="emptyState"><h2>No notifications</h2><p>Status changes, assigned jobs, helper changes, streaks, and records will appear here.</p></div>}
       </div>
     </Panel>
   );
@@ -5819,15 +5877,33 @@ function getPendingRoadblockExtensionRequest(ctx, jobId) {
 
 async function markNotificationRead(ctx, access, notification, reload) {
   if (!supabase || !notification?.id) return;
-  const key = access?.email || access?.fullName || access?.role || "user";
+  const key = getNotificationReadKey(access);
   const readBy = Array.from(new Set([...(notification.read_by || []), key]));
   const { error } = await supabase.from("app_notifications").update({ read_by: readBy }).eq("id", notification.id);
   if (error) return alert(error.message);
   await reload?.();
 }
 
+async function clearVisibleNotifications(ctx, access, notifications, reload) {
+  if (!supabase || !ctx?.company?.id) return;
+  const key = getNotificationReadKey(access);
+  const clearable = (notifications || []).filter((notification) => !isPendingRoadblockExtensionRequest(notification));
+  if (!clearable.length) return;
+
+  for (const notification of clearable) {
+    const readBy = Array.from(new Set([...(notification.read_by || []), key]));
+    const { error } = await supabase.from("app_notifications").update({ read_by: readBy }).eq("id", notification.id);
+    if (error) return alert(error.message);
+  }
+  await reload?.();
+}
+
+function getNotificationReadKey(access) {
+  return access?.email || access?.fullName || access?.role || "user";
+}
+
 function getNotificationRead(notification, access) {
-  const key = access?.email || access?.fullName || access?.role || "user";
+  const key = getNotificationReadKey(access);
   return (notification.read_by || []).includes(key);
 }
 
@@ -6874,7 +6950,7 @@ function requestNotificationPermission() {
 
 function getNotificationPermissionLabel() {
   if (typeof window === "undefined" || !("Notification" in window)) return "Desktop notifications are not supported in this browser.";
-  if (Notification.permission === "granted") return "Enabled. This device checks for manager alerts every 5 seconds while the app is open.";
+  if (Notification.permission === "granted") return "Enabled. This device checks for new jobs, status changes, requests, approvals, and denials every 5 seconds while the app is open.";
   if (Notification.permission === "denied") return "Blocked by the browser. Enable notifications for this site in Chrome/Edge settings.";
   return "Not enabled yet. Click Enable Notifications once on this device.";
 }
@@ -6906,13 +6982,25 @@ async function enableHhNotifications() {
 }
 
 function notifyRealtimeNotification(notification) {
-  const isRoadblockRequest = notification?.type === "roadblock_extension_request" && (notification.metadata || {}).status === "pending";
+  const type = notification?.type || "info";
+  const isRoadblockRequest = type === "roadblock_extension_request" && (notification.metadata || {}).status === "pending";
+  const shouldDing = [
+    "roadblock_extension_request",
+    "roadblock_extension_approved",
+    "roadblock_extension_denied",
+    "new_job",
+    "job_assigned",
+    "status_changed",
+    "job_paused",
+    "job_resumed",
+    "job_completed",
+  ].includes(type);
   const title = notification?.title || (isRoadblockRequest ? "Roadblock Extension Requested" : "H&H Production");
   const body = notification?.body || "New notification";
   notifyUser(body, {
     title,
-    important: isRoadblockRequest,
-    tag: isRoadblockRequest ? `roadblock-extension-${notification?.id || Date.now()}` : `hh-${notification?.id || Date.now()}`,
+    important: shouldDing,
+    tag: `${type}-${notification?.id || Date.now()}`,
     requireInteraction: isRoadblockRequest,
   });
 }
