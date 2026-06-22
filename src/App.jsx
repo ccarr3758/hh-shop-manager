@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import LoginPanel from "./components/auth/LoginPanel";
 import ProductionManager from "./legacy/ProductionManager";
+import UpdateAvailableBanner from "./components/pwa/UpdateAvailableBanner";
 import { getCurrentSession, getUserProfile, signOut } from "./services/auth";
 import { supabase } from "./supabaseClient";
 
@@ -32,6 +33,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pwaUpdate, setPwaUpdate] = useState(null);
   const loggedAccessKeys = useRef(new Set());
 
   async function loadProfile(currentSession) {
@@ -61,6 +63,12 @@ export default function App() {
 
     setLoading(false);
   }
+
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.__registerHhPwaUpdates) return undefined;
+    return window.__registerHhPwaUpdates((update) => setPwaUpdate(update));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -103,7 +111,7 @@ export default function App() {
     );
   }
 
-  if (!session) return <LoginPanel />;
+  if (!session) return <><UpdateAvailableBanner update={pwaUpdate} onDismiss={() => setPwaUpdate(null)} /><LoginPanel /></>;
 
   if (error || !profile) {
     return (
@@ -118,5 +126,10 @@ export default function App() {
     );
   }
 
-  return <ProductionManager authProfile={profile} onSignOut={handleSignOut} />;
+  return (
+    <>
+      <UpdateAvailableBanner update={pwaUpdate} onDismiss={() => setPwaUpdate(null)} />
+      <ProductionManager authProfile={profile} onSignOut={handleSignOut} />
+    </>
+  );
 }

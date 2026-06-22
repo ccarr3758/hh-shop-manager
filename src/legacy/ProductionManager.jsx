@@ -1,17 +1,22 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Award,
   BarChart3,
+  Bell,
   CalendarDays,
   ClipboardList,
   Database,
   ImagePlus,
   Edit3,
   LayoutDashboard,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Save,
   Settings,
   Smartphone,
+  Trophy,
   UserCheck,
   Wrench,
   X,
@@ -21,6 +26,8 @@ import { supabase } from "../supabaseClient";
 const nav = [
   ["Performance", BarChart3],
   ["Mobile Manager", Smartphone],
+  ["Notifications", Bell],
+  ["Hall of Fame", Trophy],
   ["Dashboard", LayoutDashboard],
   ["Schedule", CalendarDays],
   ["Outlook Calendar", CalendarDays],
@@ -83,6 +90,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         auditLogResult,
         accessLogResult,
         damagePhotosResult,
+        notificationResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -99,6 +107,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchOptionalAuditLogs(companyId),
         fetchOptionalAccessLogs(companyId),
         fetchOptionalDamagePhotos(companyId),
+        fetchOptionalNotifications(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -118,6 +127,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         auditLogs: auditLogResult || [],
         accessLogs: accessLogResult || [],
         damagePhotos: damagePhotosResult || [],
+        notifications: notificationResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -191,6 +201,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "job_damage_photos", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -323,6 +338,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
+        {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
+        {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
         {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
@@ -358,11 +375,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
             </button>
             <nav className="phoneBottomNav" aria-label="Mobile navigation">
               {[
-                ["Dashboard", LayoutDashboard, "Dashboard"],
-                ["Schedule", CalendarDays, "Schedule"],
-                ["Mobile Manager", Smartphone, "Floor"],
-                ["Production Log", ClipboardList, "Log"],
-                ["Admin", Settings, "More"],
+                ["Dashboard", LayoutDashboard, "Home"],
+                ["Mobile Manager", Smartphone, "Current"],
+                ["Performance", BarChart3, "Performance"],
+                ["Hall of Fame", Trophy, "Records"],
+                ["Notifications", Bell, "Alerts"],
               ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
                 <button
                   key={name}
@@ -675,6 +692,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
     const statusId = getStatusId(statusName);
     if (!statusId) return alert(`Missing status: ${statusName}`);
 
+    const previousStatus = ctx.status(job.status_id)?.name || "Unknown";
     const now = new Date().toISOString();
     const updatePayload = {
       status_id: statusId,
@@ -695,8 +713,85 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       action: `Job status changed to ${statusName}`,
       entityType: "job",
       entityId: job.id,
-      summary: `${job.vehicle || "Job"} set to ${statusName}`,
-      metadata: { job_id: job.id, statusName },
+      summary: `${job.vehicle || "Job"} changed from ${previousStatus} to ${statusName}`,
+      metadata: { job_id: job.id, previousStatus, statusName },
+    });
+    await createAppNotification(ctx, access, {
+      type: "status_changed",
+      title: "Job Status Changed",
+      body: `${jobDisplayName(job, ctx)} changed from ${previousStatus} to ${statusName}.`,
+      jobId: job.id,
+      audienceRoles: managerAudience(),
+      metadata: { previousStatus, statusName },
+    });
+    await reload();
+  }
+
+  async function pauseJob(job) {
+    const pausedId = getStatusId("Paused");
+    if (!pausedId) return alert("Missing status: Paused. Apply the mobile update Supabase migration first.");
+    const reason = window.prompt("Pause reason? Examples: Helping another technician, Waiting on parts, Waiting on approval, Lunch / Break");
+    if (!reason) return;
+    const previousStatus = ctx.status(job.status_id)?.name || "Unknown";
+    const now = new Date().toISOString();
+    const updatePayload = {
+      status_id: pausedId,
+      pause_started_at: now,
+      pause_reason: reason,
+      updated_at: now,
+    };
+    if (!job.production_started_at) updatePayload.production_started_at = now;
+    const { error } = await supabase.from("jobs").update(updatePayload).eq("id", job.id);
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job paused",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} paused. Reason: ${reason}`,
+      metadata: { job_id: job.id, previousStatus, reason },
+    });
+    await createAppNotification(ctx, access, {
+      type: "job_paused",
+      title: "Job Paused",
+      body: `${jobDisplayName(job, ctx)} paused by ${ctx.tech(job.technician_id)?.name || "technician"}. Reason: ${reason}.`,
+      jobId: job.id,
+      technicianId: job.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { previousStatus, reason },
+    });
+    await reload();
+  }
+
+  async function resumeJob(job) {
+    const inProgressId = getStatusId("In Progress");
+    if (!inProgressId) return alert("Missing status: In Progress");
+    const nowDate = new Date();
+    const pauseStarted = job.pause_started_at ? new Date(job.pause_started_at) : null;
+    const additionalPaused = pauseStarted && !Number.isNaN(pauseStarted.getTime()) ? Math.max(0, Math.round((nowDate - pauseStarted) / 1000)) : 0;
+    const totalPaused = Number(job.total_paused_seconds || 0) + additionalPaused;
+    const { error } = await supabase.from("jobs").update({
+      status_id: inProgressId,
+      total_paused_seconds: totalPaused,
+      pause_started_at: null,
+      pause_reason: null,
+      updated_at: nowDate.toISOString(),
+    }).eq("id", job.id);
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job resumed",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} resumed`,
+      metadata: { job_id: job.id, totalPaused },
+    });
+    await createAppNotification(ctx, access, {
+      type: "job_resumed",
+      title: "Job Resumed",
+      body: `${jobDisplayName(job, ctx)} resumed by ${ctx.tech(job.technician_id)?.name || "technician"}.`,
+      jobId: job.id,
+      technicianId: job.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { totalPaused },
     });
     await reload();
   }
@@ -741,15 +836,20 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
 
     const now = new Date();
     const startedAt = getJobStartedAt(job) || getScheduledStartDate(job) || now;
-    const actualHours = Math.max(0.01, (now - startedAt) / 36e5);
+    const actualHours = roundHours(getActiveElapsedHours(job, now, startedAt));
+    const adjustedBook = getAdjustedBookHours(job);
+    const efficiency = actualHours ? (adjustedBook / actualHours) * 100 : 0;
 
     const { error } = await supabase
       .from("jobs")
       .update({
         status_id: completedId,
-        actual_hours: roundHours(actualHours),
+        actual_hours: actualHours,
+        active_time_hours: actualHours,
         production_started_at: job.production_started_at || startedAt.toISOString(),
         production_completed_at: now.toISOString(),
+        pause_started_at: null,
+        pause_reason: null,
         qc: "Yes",
         updated_at: now.toISOString(),
       })
@@ -760,10 +860,32 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       action: "Job completed",
       entityType: "job",
       entityId: job.id,
-      summary: `${job.vehicle || "Job"} completed with ${roundHours(actualHours)} actual hrs`,
-      metadata: { actualHours: roundHours(actualHours) },
+      summary: `${job.vehicle || "Job"} completed with ${actualHours} active hrs`,
+      metadata: { actualHours, adjustedBook, efficiency },
     });
-    notifyUser(`Completed: ${job.vehicle || "job"} • ${roundHours(actualHours)} actual hrs`);
+    await createAppNotification(ctx, access, {
+      type: "job_completed",
+      title: "Job Completed",
+      body: `${jobDisplayName(job, ctx)} completed at ${Math.round(efficiency)}% efficiency.`,
+      jobId: job.id,
+      technicianId: job.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { actualHours, adjustedBook, efficiency },
+    });
+    if (efficiency >= 100) {
+      await createAppNotification(ctx, access, {
+        type: "beat_book",
+        title: "Beat Book Time",
+        body: `${jobDisplayName(job, ctx)} finished at ${Math.round(efficiency)}% efficiency.`,
+        jobId: job.id,
+        technicianId: job.technician_id,
+        audienceRoles: ["technician", "foreman"],
+        metadata: { actualHours, adjustedBook, efficiency },
+      });
+    }
+    await createStreakNotificationsForCompletion(ctx, access, job, { actualHours, adjustedBook, efficiency });
+    await createRecordNotificationsForCompletion(ctx, access, job, { actualHours, adjustedBook, efficiency });
+    notifyUser(`Completed: ${job.vehicle || "job"} • ${actualHours} active hrs`);
     await reload();
   }
 
@@ -872,6 +994,15 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       summary: `${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)}`,
       metadata: helperRow,
     });
+    await createAppNotification(ctx, access, {
+      type: "helper_added",
+      title: "Helper Added",
+      body: `${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)} on ${jobDisplayName(job, ctx)}.`,
+      jobId: job.id,
+      technicianId: helperTechnicianId,
+      audienceRoles: managerAudience(),
+      metadata: helperRow,
+    });
     notifyUser(`${ctx.tech(helperTechnicianId)?.name || "Helper"} added to assist ${getPrimaryTechNameForJob(job, ctx)}`);
     await reload();
   }
@@ -892,7 +1023,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       (j) =>
         j.technician_id === techId &&
         !ctx.isComplete(j.status_id) &&
-        ["In Progress", "Waiting", "QC"].includes(ctx.status(j.status_id)?.name)
+        ["In Progress", "Paused", "QC"].includes(ctx.status(j.status_id)?.name)
     );
 
     if (activeLeadJob) {
@@ -933,6 +1064,15 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       entityId: helper.id,
       summary: `${ctx.tech(helper.technician_id)?.name || "Helper"} ended help on ${job.vehicle || "job"}`,
       metadata: { helper_id: helper.id, job_id: job.id, creditedHours, actualHours },
+    });
+    await createAppNotification(ctx, access, {
+      type: "helper_removed",
+      title: "Helper Removed",
+      body: `${ctx.tech(helper.technician_id)?.name || "Helper"} ended help on ${jobDisplayName(job, ctx)}.`,
+      jobId: job.id,
+      technicianId: helper.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { helper_id: helper.id, creditedHours, actualHours },
     });
     notifyUser(`${ctx.tech(helper.technician_id)?.name || "Helper"} ended help with ${creditedHours} credited hrs (${actualHours} actual hrs)`);
     await reload();
@@ -1020,7 +1160,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       </header>
 
       <div className="mobileTabs">
-        {["Open", "Scheduled", "In Progress", "Waiting", "QC"].map((x) => (
+        {["Open", "Scheduled", "In Progress", "Paused", "QC"].map((x) => (
           <button
             key={x}
             className={filter === x ? "active" : ""}
@@ -1106,7 +1246,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
                 <button onClick={() => editJobStartTime(job)}>Edit Start</button>
-                <button onClick={() => updateStatus(job, "Waiting")}>Waiting</button>
+                {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button onClick={() => setEditingJob(job)}>Edit</button>
                 <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>
@@ -1167,7 +1307,7 @@ function SelfHelpPanel({ job, allJobs = [], ctx, access, selectedDate, onStartHe
     (allJobs || [])
       .filter((candidate) => !ctx.isComplete(candidate.status_id))
       .filter((candidate) => candidate.technician_id !== technicianId)
-      .filter((candidate) => ["In Progress", "Waiting", "QC"].includes(ctx.status(candidate.status_id)?.name))
+      .filter((candidate) => ["In Progress", "Paused", "QC"].includes(ctx.status(candidate.status_id)?.name))
   );
 
   if (activeHelper) {
@@ -1269,7 +1409,7 @@ function DamagePhotoPanel({ job, ctx, onUpload }) {
 
 function MobileDashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, onOpenHelpShortcut }) {
   const currentMinute = getCurrentMinuteOfDay();
-  const activeStatuses = new Set(["In Progress", "Waiting", "QC"]);
+  const activeStatuses = new Set(["In Progress", "Paused", "QC"]);
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id));
   const activeJobs = openJobs.filter((j) => activeStatuses.has(ctx.status(j.status_id)?.name));
@@ -1408,8 +1548,8 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
   />
 
   <Kpi
-    title="Waiting Jobs"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Waiting").length}
+    title="Paused Jobs"
+    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Paused").length}
     caption="Needs attention"
   />
 
@@ -1918,7 +2058,7 @@ function HelperControls({ job, ctx, onAddHelper, onEndHelper, onRemoveHelper }) 
 function Foreman({ jobs, ctx, reload, access }) {
   const open = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const inProgress = ctx.statuses.find((s) => s.name === "In Progress")?.id;
-  const waiting = ctx.statuses.find((s) => s.name === "Waiting")?.id;
+  const paused = ctx.statuses.find((s) => s.name === "Paused")?.id;
   const complete =
     ctx.statuses.find((s) => s.name === "Completed")?.id ||
     ctx.statuses.find((s) => s.name === "Complete")?.id;
@@ -2010,7 +2150,7 @@ function Foreman({ jobs, ctx, reload, access }) {
               <b>{ctx.tech(job.technician_id)?.name}</b> • {formatTime(getEffectiveJobStartTime(job))} • {job.book_hours} book hrs
             </p>
             <div className="buttonGrid">
-              {waiting && <button onClick={() => setStatus(job, waiting)}>Waiting</button>}
+              {paused && <button onClick={() => setStatus(job, paused)}>Pause</button>}
               {inProgress && <button onClick={() => setStatus(job, inProgress)}>Start</button>}
               {ctx.status(job.status_id)?.name === "In Progress" && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
               {complete && (
@@ -2299,6 +2439,83 @@ function TechnicianClock({ ctx, reload, selectedDate }) {
         </div>
       </Panel>
     </section>
+  );
+}
+
+
+function NotificationsCenter({ ctx, access, reload }) {
+  const notifications = (ctx.notifications || [])
+    .filter((notification) => canReceiveNotification(notification, access))
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return (
+    <Panel title="Notifications" chip={`${notifications.length} alerts`}>
+      <div className="notificationList">
+        {notifications.map((notification) => {
+          const read = getNotificationRead(notification, access);
+          return (
+            <div className={`notificationCard ${read ? "read" : "unread"}`} key={notification.id}>
+              <div>
+                <strong>{notification.title}</strong>
+                <p>{notification.body}</p>
+                <span>{notification.created_at ? new Date(notification.created_at).toLocaleString() : ""}</span>
+              </div>
+              {!read && <button onClick={() => markNotificationRead(ctx, access, notification, reload)}>Mark Read</button>}
+            </div>
+          );
+        })}
+        {!notifications.length && <div className="emptyState"><h2>No notifications</h2><p>Status changes, assigned jobs, helper changes, streaks, and records will appear here.</p></div>}
+      </div>
+    </Panel>
+  );
+}
+
+function HallOfFame({ ctx, access }) {
+  const products = (ctx.products || []).filter((product) => product.active !== false);
+  const rows = products.map((product) => {
+    const record = buildProductRecordData(ctx, product.id);
+    const personal = access?.technicianId ? buildProductRecordData(ctx, product.id, access.technicianId) : null;
+    return { product, record, personal };
+  }).filter((row) => row.record.count > 0);
+
+  return (
+    <div className="grid two">
+      <Panel title="Hall of Fame" chip="Product based records">
+        <p className="muted">Records are based on the product assigned to the ticket from the Products page. Shop records unlock after 10 qualifying installs of that exact product.</p>
+        <div className="hofList">
+          {rows.map(({ product, record, personal }) => {
+            const holder = record.fastest ? ctx.tech(record.fastest.technician_id)?.name || "Technician" : "—";
+            return (
+              <div className="hofCard" key={product.id}>
+                <div>
+                  <strong>{product.name}</strong>
+                  <span>{record.count} / 10 qualifying installs{record.unlocked ? " • Unlocked" : " • Locked"}</span>
+                </div>
+                <div className="hofStats">
+                  <span>Shop Record</span>
+                  <strong>{record.unlocked && record.fastest ? `${Number(record.fastest.actual_hours || 0).toFixed(2)} hrs` : "Locked"}</strong>
+                  <em>{record.unlocked ? holder : "Record starts at 10 installs"}</em>
+                </div>
+                <div className="hofStats">
+                  <span>My Best</span>
+                  <strong>{personal?.fastest ? `${Number(personal.fastest.actual_hours || 0).toFixed(2)} hrs` : "—"}</strong>
+                  <em>{personal?.count || 0} qualifying installs</em>
+                </div>
+              </div>
+            );
+          })}
+          {!rows.length && <div className="emptyState"><h2>No qualifying installs yet</h2><p>Complete jobs linked to Products page items to build Hall of Fame records.</p></div>}
+        </div>
+      </Panel>
+      <Panel title="Qualification Rules" chip="Locked until 10">
+        <div className="simpleRules">
+          <p><b>Source:</b> Product selected on the work order.</p>
+          <p><b>Unlock:</b> 10 qualifying installs of that product.</p>
+          <p><b>Qualifying:</b> completed normally, no approved variance, no comeback.</p>
+          <p><b>Initial record:</b> fastest qualifying install from the first 10.</p>
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -2978,7 +3195,7 @@ function getTechStats(jobs, ctx, technicianId, options = {}) {
     (j) => (!technicianId || j.technician_id === technicianId) && ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0
   );
 
-  const jobBookHours = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const jobBookHours = completed.reduce((a, j) => a + getAdjustedBookHours(j), 0);
   const jobActualHours = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
   const helperStats = getHelperPerformanceStats(ctx, technicianId, options);
   const receivedStats = getHelpReceivedStats(ctx, technicianId, options);
@@ -4263,6 +4480,9 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
     actual_hours: job.actual_hours ?? "",
     qc: job.qc || "N/A",
     notes: job.notes || "",
+    approved_variance_hours: job.approved_variance_hours ?? "",
+    approved_variance_reason: job.approved_variance_reason || "",
+    exceptional_circumstance: Boolean(job.exceptional_circumstance),
   });
 
   const totalBookHours = totalProductLineHours(productLines);
@@ -4286,6 +4506,10 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
       labor_sold: totalLabor || null,
       qc: draft.qc,
       notes: draft.notes,
+      approved_variance_hours: draft.approved_variance_hours === "" ? 0 : Number(draft.approved_variance_hours),
+      approved_variance_reason: draft.approved_variance_reason || null,
+      approved_variance_approved_by: Number(draft.approved_variance_hours || 0) > 0 ? (access?.fullName || access?.email || access?.role || "approved") : null,
+      exceptional_circumstance: Boolean(draft.exceptional_circumstance),
       updated_at: new Date().toISOString(),
     };
 
@@ -4299,6 +4523,17 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
       summary: `${payload.vehicle || "Job"} edited`,
       metadata: { before: job, after: payload },
     });
+    if (Number(payload.approved_variance_hours || 0) > Number(job.approved_variance_hours || 0)) {
+      await createAppNotification(ctx, access, {
+        type: "approved_variance",
+        title: "Approved Variance Added",
+        body: `${jobDisplayName({ ...job, ...payload }, ctx)} received +${Number(payload.approved_variance_hours || 0).toFixed(2)} approved variance hrs.`,
+        jobId: job.id,
+        technicianId: payload.technician_id,
+        audienceRoles: managerAudience(),
+        metadata: payload,
+      });
+    }
 
     const lineError = await saveJobProductLines(ctx.company.id, job.id, productLines);
     if (lineError) return alert(lineError.message || lineError);
@@ -4369,6 +4604,33 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
             Actual Hours
             <input type="number" step="0.25" value={draft.actual_hours} onChange={(e) => setDraft({ ...draft, actual_hours: e.target.value })} />
           </label>
+          <label>
+            Approved Variance Hours
+            <input type="number" step="0.25" value={draft.approved_variance_hours} onChange={(e) => setDraft({ ...draft, approved_variance_hours: e.target.value })} />
+          </label>
+
+          <label>
+            Variance Reason
+            <select value={draft.approved_variance_reason || ""} onChange={(e) => setDraft({ ...draft, approved_variance_reason: e.target.value })}>
+              <option value="">None</option>
+              <option>Broken / Rusted Hardware</option>
+              <option>Previous Repair Damage</option>
+              <option>Incorrect Parts</option>
+              <option>Manufacturer Defect</option>
+              <option>Customer Added Work</option>
+              <option>Fabrication Required</option>
+              <option>Diagnostic Extension</option>
+              <option>Waiting on Parts</option>
+              <option>Electrical Damage</option>
+              <option>Shop Equipment Failure</option>
+              <option>Other</option>
+            </select>
+          </label>
+
+          <label className="checkLine">
+            <input type="checkbox" checked={draft.exceptional_circumstance} onChange={(e) => setDraft({ ...draft, exceptional_circumstance: e.target.checked })} />
+            Manager-approved exceptional circumstance
+          </label>
 
           <label>
             QC
@@ -4430,6 +4692,24 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
       entityType: "job",
       entityId: data.id,
       summary: `${job.vehicle || "Job"} created for ${job.customer || "customer"}`,
+      metadata: job,
+    });
+    await createAppNotification(ctx, access, {
+      type: "job_assigned",
+      title: "New Job Assigned",
+      body: `${job.vehicle || "Job"} • ${productLines.map((line) => ctx.product(line.product_id)?.name || "Product").join(" + ")} assigned to ${ctx.tech(job.technician_id)?.name || "Unassigned"}.`,
+      jobId: data.id,
+      technicianId: job.technician_id,
+      audienceRoles: ["technician", "foreman"],
+      metadata: job,
+    });
+    await createAppNotification(ctx, access, {
+      type: "job_added",
+      title: "New Job Added",
+      body: `${job.vehicle || "Job"} assigned to ${ctx.tech(job.technician_id)?.name || "Unassigned"}.`,
+      jobId: data.id,
+      technicianId: job.technician_id,
+      audienceRoles: managerAudience(),
       metadata: job,
     });
 
@@ -4700,7 +4980,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false, statsOp
   const rows = ctx.technicians
     .map((tech) => {
       const stats = getTechStats(sourceJobs, ctx, tech.id, { monthly, ...statsOptions });
-      return { tech, stats, savedHours: stats.bookHours - stats.actualHours };
+      return { tech, stats, savedHours: stats.bookHours - stats.actualHours, efficiencyStreak: getEfficiencyStreak(ctx, tech.id), noComebackStreak: getNoComebackStreak(ctx, tech.id) };
     })
     .sort((a, b) => {
       if (b.stats.efficiency !== a.stats.efficiency) return b.stats.efficiency - a.stats.efficiency;
@@ -4724,7 +5004,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false, statsOp
           <strong className={effClass(shopStats.efficiency)}>{shopStats.efficiency ? `${Math.round(shopStats.efficiency)}%` : "—"}</strong>
         </div>
       )}
-      {rows.map(({ tech, stats, savedHours }, index) => {
+      {rows.map(({ tech, stats, savedHours, efficiencyStreak, noComebackStreak }, index) => {
         const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`;
         return (
           <div className={`leader ${index < 3 ? `leaderTop${index + 1}` : ""}`} key={tech.id}>
@@ -4733,7 +5013,7 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false, statsOp
                 {medal} {tech.name}
               </b>
               <span>
-                {stats.completedJobs} jobs • helped {stats.helperActualHours.toFixed(1)}h • curve +{stats.helperCurveBonus.toFixed(1)}% • received {stats.helpReceivedActualHours.toFixed(1)}h • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
+                🔥 {efficiencyStreak} eff streak • 🛡️ {noComebackStreak} no-comeback • {stats.completedJobs} jobs • helped {stats.helperActualHours.toFixed(1)}h • curve +{stats.helperCurveBonus.toFixed(1)}% • received {stats.helpReceivedActualHours.toFixed(1)}h • {stats.bookHours.toFixed(1)} book / {stats.actualHours.toFixed(1)} actual • {savedHours >= 0 ? "+" : ""}{savedHours.toFixed(1)} hrs saved
                 {detailed ? ` • avg ${stats.avgActual.toFixed(2)}h` : ""}
               </span>
             </div>
@@ -4743,6 +5023,35 @@ function TechLeaderboard({ jobs, ctx, detailed = false, monthly = false, statsOp
       })}
     </div>
   );
+}
+
+
+function getTechnicianCompletedJobs(ctx, technicianId) {
+  return (ctx.jobs || [])
+    .filter((job) => job.technician_id === technicianId && ctx.isComplete(job.status_id) && Number(job.actual_hours || 0) > 0)
+    .sort((a, b) => new Date(b.production_completed_at || b.updated_at || b.created_at || 0) - new Date(a.production_completed_at || a.updated_at || a.created_at || 0));
+}
+
+function getEfficiencyStreak(ctx, technicianId) {
+  let count = 0;
+  for (const job of getTechnicianCompletedJobs(ctx, technicianId)) {
+    if (Number(job.approved_variance_hours || 0) > 0 || job.exceptional_circumstance) continue;
+    const actual = Number(job.actual_hours || 0);
+    const adjustedBook = getAdjustedBookHours(job);
+    if (actual > 0 && adjustedBook / actual >= 1) count += 1;
+    else break;
+  }
+  return count;
+}
+
+function getNoComebackStreak(ctx, technicianId) {
+  const comebackJobIds = new Set((ctx.comebackRework || []).flatMap((row) => [row.original_job_id, row.job_id].filter(Boolean)));
+  let count = 0;
+  for (const job of getTechnicianCompletedJobs(ctx, technicianId)) {
+    if (comebackJobIds.has(job.id)) break;
+    count += 1;
+  }
+  return count;
 }
 
 function currentMonthCompletedJobs(jobs, ctx) {
@@ -4919,6 +5228,23 @@ async function fetchOptionalDamagePhotos(companyId) {
   return data || [];
 }
 
+
+async function fetchOptionalNotifications(companyId) {
+  const { data, error } = await supabase
+    .from("app_notifications")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("app_notifications")) return [];
+    throw error;
+  }
+
+  return data || [];
+}
+
 async function logAuditEvent(ctx, access, { action, entityType, entityId, summary, metadata = {} }) {
   if (!supabase || !ctx?.company?.id) return;
 
@@ -4937,6 +5263,55 @@ async function logAuditEvent(ctx, access, { action, entityType, entityId, summar
   if (error && error.code !== "42P01") console.warn("Audit log failed", error.message);
 }
 
+
+async function createAppNotification(ctx, access, { type = "info", title, body, jobId = null, technicianId = null, audienceRoles = [], metadata = {} }) {
+  if (!supabase || !ctx?.company?.id) return;
+  const payload = {
+    company_id: ctx.company.id,
+    type,
+    title: title || "Notification",
+    body: body || "",
+    job_id: jobId,
+    technician_id: technicianId,
+    audience_roles: audienceRoles,
+    actor_name: access?.fullName || access?.email || access?.role || null,
+    metadata,
+    read_by: [],
+  };
+  const { error } = await supabase.from("app_notifications").insert(payload);
+  if (error && error.code !== "42P01") console.warn("Notification insert failed", error.message);
+}
+
+function canReceiveNotification(notification, access) {
+  const role = normalizeRole(access?.role);
+  const audience = (notification.audience_roles || []).map(normalizeRole);
+  const roleMatch = !audience.length || audience.includes(role);
+  const techMatch = !notification.technician_id || notification.technician_id === access?.technicianId;
+  return roleMatch && techMatch;
+}
+
+async function markNotificationRead(ctx, access, notification, reload) {
+  if (!supabase || !notification?.id) return;
+  const key = access?.email || access?.fullName || access?.role || "user";
+  const readBy = Array.from(new Set([...(notification.read_by || []), key]));
+  const { error } = await supabase.from("app_notifications").update({ read_by: readBy }).eq("id", notification.id);
+  if (error) return alert(error.message);
+  await reload?.();
+}
+
+function getNotificationRead(notification, access) {
+  const key = access?.email || access?.fullName || access?.role || "user";
+  return (notification.read_by || []).includes(key);
+}
+
+function managerAudience() {
+  return ["foreman", "manager", "admin"];
+}
+
+function jobDisplayName(job, ctx) {
+  return `${job?.vehicle || job?.customer || "Job"}${ctx?.jobProductsSummary ? ` • ${ctx.jobProductsSummary(job)}` : ""}`;
+}
+
 async function fetchJobs(companyId) {
   const { data, error } = await supabase
     .from("jobs")
@@ -4948,19 +5323,158 @@ async function fetchJobs(companyId) {
   return data || [];
 }
 
+
+function getAdjustedBookHours(job) {
+  return Number(job?.book_hours || 0) + Number(job?.approved_variance_hours || 0);
+}
+
+function getActiveElapsedHours(job, nowDate = new Date(), fallbackStart = null) {
+  const startedAt = getJobStartedAt(job) || fallbackStart || getScheduledStartDate(job) || nowDate;
+  const totalSeconds = Math.max(0, Math.round((nowDate - startedAt) / 1000));
+  const storedPaused = Number(job?.total_paused_seconds || 0);
+  const currentPauseStarted = job?.pause_started_at ? new Date(job.pause_started_at) : null;
+  const currentPauseSeconds = currentPauseStarted && !Number.isNaN(currentPauseStarted.getTime())
+    ? Math.max(0, Math.round((nowDate - currentPauseStarted) / 1000))
+    : 0;
+  const activeSeconds = Math.max(60, totalSeconds - storedPaused - currentPauseSeconds);
+  return activeSeconds / 3600;
+}
+
+function isQualifyingRecordInstall(job, ctx) {
+  if (!job || !ctx?.isComplete?.(job.status_id)) return false;
+  if (Number(job.actual_hours || 0) <= 0) return false;
+  if (Number(job.approved_variance_hours || 0) > 0) return false;
+  if (job.exceptional_circumstance) return false;
+  const comeback = (ctx.comebackRework || []).some((row) => row.original_job_id === job.id || row.job_id === job.id);
+  if (comeback) return false;
+  return Boolean(job.product_id);
+}
+
+function getPrimaryProductNameForJob(job, ctx) {
+  const lines = ctx?.jobProductLines?.(job?.id) || [];
+  const productId = lines[0]?.product_id || job?.product_id;
+  return ctx?.product?.(productId)?.name || ctx?.jobProductsSummary?.(job) || "Unknown Product";
+}
+
+function buildProductRecordData(ctx, productId, technicianId = null) {
+  const qualifying = (ctx.jobs || [])
+    .filter((job) => job.product_id === productId)
+    .filter((job) => !technicianId || job.technician_id === technicianId)
+    .filter((job) => isQualifyingRecordInstall(job, ctx))
+    .sort((a, b) => Number(a.actual_hours || 999999) - Number(b.actual_hours || 999999));
+  return {
+    count: qualifying.length,
+    fastest: qualifying[0] || null,
+    installs: qualifying,
+    unlocked: qualifying.length >= 10,
+  };
+}
+
+
+async function createStreakNotificationsForCompletion(ctx, access, completedJob, stats) {
+  const techId = completedJob?.technician_id;
+  if (!techId) return;
+  const milestones = new Set([5, 10, 25, 50, 100, 250, 500]);
+  const completedLike = { ...completedJob, actual_hours: stats.actualHours };
+  const priorJobs = getTechnicianCompletedJobs(ctx, techId);
+  const jobsWithCurrent = [completedLike, ...priorJobs];
+  let efficiencyStreak = 0;
+  for (const job of jobsWithCurrent) {
+    if (Number(job.approved_variance_hours || 0) > 0 || job.exceptional_circumstance) continue;
+    const actual = Number(job.actual_hours || 0);
+    const adjustedBook = getAdjustedBookHours(job);
+    if (actual > 0 && adjustedBook / actual >= 1) efficiencyStreak += 1;
+    else break;
+  }
+  if (milestones.has(efficiencyStreak)) {
+    await createAppNotification(ctx, access, {
+      type: "efficiency_streak",
+      title: "Efficiency Streak",
+      body: `${efficiencyStreak} consecutive jobs at or above book time.`,
+      jobId: completedJob.id,
+      technicianId: techId,
+      audienceRoles: ["technician", "foreman"],
+      metadata: { efficiencyStreak },
+    });
+  }
+
+  const comebackJobIds = new Set((ctx.comebackRework || []).flatMap((row) => [row.original_job_id, row.job_id].filter(Boolean)));
+  let noComebackStreak = 0;
+  for (const job of jobsWithCurrent) {
+    if (comebackJobIds.has(job.id)) break;
+    noComebackStreak += 1;
+  }
+  if (milestones.has(noComebackStreak)) {
+    await createAppNotification(ctx, access, {
+      type: "no_comeback_streak",
+      title: "No Comeback Streak",
+      body: `${noComebackStreak} consecutive completed jobs without a comeback.`,
+      jobId: completedJob.id,
+      technicianId: techId,
+      audienceRoles: ["technician", "foreman"],
+      metadata: { noComebackStreak },
+    });
+  }
+}
+
+async function createRecordNotificationsForCompletion(ctx, access, completedJob, stats) {
+  const productId = completedJob?.product_id;
+  if (!productId || !isQualifyingRecordInstall({ ...completedJob, status_id: ctx.statuses.find((s) => (s.name || '').toLowerCase().includes('complete'))?.id || completedJob.status_id, actual_hours: stats.actualHours }, ctx)) return;
+  const productName = getPrimaryProductNameForJob(completedJob, ctx);
+  const shopRecord = buildProductRecordData(ctx, productId);
+  const techRecord = buildProductRecordData(ctx, productId, completedJob.technician_id);
+  const priorShopFastest = shopRecord.fastest;
+  const priorTechFastest = techRecord.fastest;
+  const completingTime = Number(stats.actualHours || completedJob.actual_hours || 0);
+
+  if (priorTechFastest && priorTechFastest.id !== completedJob.id && completingTime < Number(priorTechFastest.actual_hours || 999999)) {
+    await createAppNotification(ctx, access, {
+      type: "personal_record",
+      title: "New Personal Record",
+      body: `Fastest ${productName}: ${completingTime.toFixed(2)} active hrs.`,
+      jobId: completedJob.id,
+      technicianId: completedJob.technician_id,
+      audienceRoles: ["technician", "foreman"],
+      metadata: { productId, productName, actualHours: completingTime },
+    });
+  }
+
+  const productRecordAfterThis = (ctx.jobs || []).filter((job) => job.product_id === productId && isQualifyingRecordInstall(job, ctx)).length + 1;
+  if (productRecordAfterThis >= 10 && (!priorShopFastest || completingTime < Number(priorShopFastest.actual_hours || 999999))) {
+    await createAppNotification(ctx, access, {
+      type: "shop_record",
+      title: "Shop Record Set",
+      body: `${ctx.tech(completedJob.technician_id)?.name || "Technician"} set the ${productName} record at ${completingTime.toFixed(2)} active hrs.`,
+      jobId: completedJob.id,
+      technicianId: completedJob.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { productId, productName, actualHours: completingTime },
+    });
+    await createAppNotification(ctx, access, {
+      type: "hall_of_fame",
+      title: "Hall of Fame Entry",
+      body: `You now hold the ${productName} shop record at ${completingTime.toFixed(2)} active hrs.`,
+      jobId: completedJob.id,
+      technicianId: completedJob.technician_id,
+      audienceRoles: ["technician", "foreman"],
+      metadata: { productId, productName, actualHours: completingTime },
+    });
+  }
+}
+
 function calculateMetrics(jobs, ctx, selectedDate = todayIso()) {
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id) && Number(j.actual_hours) > 0);
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const helperStats = getHelperPerformanceStats(ctx, null, { selectedDate });
   const receivedStats = getHelpReceivedStats(ctx, null, { selectedDate });
-  const jobBookComplete = completed.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const jobBookComplete = completed.reduce((a, j) => a + getAdjustedBookHours(j), 0);
   const jobActualUsed = completed.reduce((a, j) => a + Number(j.actual_hours || 0), 0);
   const bookComplete = jobBookComplete + helperStats.bookHours;
   const actualUsed = jobActualUsed + helperStats.actualHours;
   const helperCurveBonus = getHelperCurveBonusPercent(helperStats.actualHours);
   const baseEfficiency = actualUsed ? (bookComplete / actualUsed) * 100 : 0;
   const availableTechCount = getCapacityTechnicianCount(ctx, selectedDate);
-  const remainingBookHours = openJobs.reduce((a, j) => a + Number(j.book_hours || 0), 0);
+  const remainingBookHours = openJobs.reduce((a, j) => a + getAdjustedBookHours(j), 0);
   const openJobIds = new Set(openJobs.map((j) => j.id));
   const activeHelperBookHours = (ctx.jobHelpers || []).reduce((sum, helper) => {
     if (helper.scheduled_date !== selectedDate || !isActiveHelper(helper)) return sum;
@@ -5049,6 +5563,7 @@ function makeContext(state) {
     auditLogs: state.auditLogs || [],
     accessLogs: state.accessLogs || [],
     damagePhotos: state.damagePhotos || [],
+    notifications: state.notifications || [],
   };
 }
 
@@ -5068,6 +5583,7 @@ function emptyState() {
     auditLogs: [],
     accessLogs: [],
     damagePhotos: [],
+    notifications: [],
     shopSettings: null,
     jobs: [],
   };
@@ -5878,7 +6394,7 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
   const now = new Date();
 
   function getTechCurrentJob(techId) {
-    const activeStatusNames = ["In Progress", "Waiting", "QC"];
+    const activeStatusNames = ["In Progress", "Paused", "QC"];
     const helperAssignment = getHelperAssignmentForTech(techId, ctx, todayIso());
     if (helperAssignment) {
       const primaryJob = (ctx.jobs || jobs).find((j) => j.id === helperAssignment.job_id);
