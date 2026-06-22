@@ -1175,3 +1175,18 @@ button:not(.primary):not(.sidebarButton) {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.notificationPermissionRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  border-radius: 16px;
+  background: #f8fafc;
+}
+.notificationPermissionRow strong { display: block; color: #0f172a; }
+.notificationPermissionRow span { display: block; color: #64748b; font-size: 12px; font-weight: 800; margin-top: 2px; }
+@media(max-width:640px){.notificationPermissionRow{grid-template-columns:1fr}.notificationPermissionRow button{width:100%}}

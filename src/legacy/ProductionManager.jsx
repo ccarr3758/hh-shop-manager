@@ -222,7 +222,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           const notification = payload.new;
           if (notification?.id && !notifiedRealtimeIds.current.has(notification.id) && canReceiveNotification(notification, access)) {
             notifiedRealtimeIds.current.add(notification.id);
-            notifyUser(`${notification.title || "H&H Production"}: ${notification.body || "New notification"}`);
+            notifyRealtimeNotification(notification);
           }
           loadAll();
         }
@@ -849,7 +849,7 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
     const pending = getPendingExtensionRequest(job);
     if (pending) return alert("An extension request is already pending for this job.");
 
-    const reason = window.prompt("Required reason for roadblock extension:");
+    const reason = window.prompt("Roadblock reason? The job will stay In Progress; use Pause only when work actually stops.");
     if (!reason || !reason.trim()) return alert("A reason is required.");
 
     const requestedRaw = window.prompt("Requested extension time in minutes (example: 15, 30, 45, 60):", "30");
@@ -868,7 +868,9 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       requested_by_technician_id: job.technician_id || access?.technicianId || null,
       requested_at: new Date().toISOString(),
       current_book_hours: Number(job.book_hours || 0),
+      current_roadblock_reason: reason.trim(),
       current_pause_reason: job.pause_reason || null,
+      job_status_when_requested: ctx.status(job.status_id)?.name || null,
     };
 
     await createAppNotification(ctx, access, {
@@ -1393,18 +1395,10 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
                 {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
                 {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
                 <button
-                  disabled={ctx.status(job.status_id)?.name === "Paused" && Boolean(getPendingExtensionRequest(job))}
-                  onClick={() => {
-                    if (ctx.status(job.status_id)?.name === "Paused") {
-                      requestRoadblockExtension(job);
-                    } else {
-                      pauseJob(job);
-                    }
-                  }}
+                  disabled={Boolean(getPendingExtensionRequest(job))}
+                  onClick={() => requestRoadblockExtension(job)}
                 >
-                  {ctx.status(job.status_id)?.name === "Paused"
-                    ? (getPendingExtensionRequest(job) ? "Extension Requested" : "Request Extension")
-                    : "Roadblock"}
+                  {getPendingExtensionRequest(job) ? "Extension Requested" : "Roadblock"}
                 </button>
                 <button onClick={() => setEditingJob(job)}>{canEditJobs(access) ? "Edit" : "Job Details"}</button>
                 {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
@@ -2625,6 +2619,13 @@ function NotificationsCenter({ ctx, access, reload }) {
 
   return (
     <Panel title="Notifications" chip={`${notifications.length} alerts`}>
+      <div className="notificationPermissionRow">
+        <div>
+          <strong>Desktop alerts</strong>
+          <span>{getNotificationPermissionLabel()}</span>
+        </div>
+        <button className="primary" onClick={enableHhNotifications}>Enable Notifications</button>
+      </div>
       <div className="notificationList">
         {pendingRoadblockRequests.map((notification) => (
           <PendingRoadblockExtensionCard
@@ -2672,7 +2673,7 @@ function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
     };
     const { error } = await supabase
       .from("app_notifications")
-      .update({ metadata: nextMetadata })
+      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
       .eq("id", notification.id);
     if (error) return alert(error.message);
     return nextMetadata;
@@ -2763,7 +2764,8 @@ ${noteLine}`.trim(),
         <strong>Roadblock Extension Request</strong>
         <p><b>{techName}</b> requested <b>+{requestedMinutes} min</b> on {job ? jobDisplayName(job, ctx) : "a job"}.</p>
         <p><b>Reason:</b> {metadata.reason || "No reason recorded"}</p>
-        <p><b>Current roadblock:</b> {metadata.current_pause_reason || job?.pause_reason || "Roadblocked / paused"}</p>
+        <p><b>Roadblock:</b> {metadata.current_roadblock_reason || metadata.reason || "Roadblock request"}</p>
+        {metadata.job_status_when_requested && <p><b>Job status stayed:</b> {metadata.job_status_when_requested}</p>}
         <span>{notification.created_at ? new Date(notification.created_at).toLocaleString() : ""}</span>
       </div>
       <div className="roadblockRequestControls">
@@ -6789,13 +6791,127 @@ function filterJobsForAccess(jobs, access) {
 
 function requestNotificationPermission() {
   if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  if (Notification.permission === "default" && window.localStorage?.getItem("hh_notifications_enabled") === "yes") {
+    Notification.requestPermission().catch(() => {});
+  }
 }
 
-function notifyUser(message) {
-  if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission === "granted") {
-    new Notification("H&H Production", { body: message });
+function getNotificationPermissionLabel() {
+  if (typeof window === "undefined" || !("Notification" in window)) return "Desktop notifications are not supported in this browser.";
+  if (Notification.permission === "granted") return "Enabled. Roadblock requests will ding and show a desktop notification while this app is open.";
+  if (Notification.permission === "denied") return "Blocked by the browser. Enable notifications for this site in Chrome/Edge settings.";
+  return "Not enabled yet. Click Enable Notifications once on this device.";
+}
+
+async function enableHhNotifications() {
+  if (typeof window === "undefined") return;
+  window.localStorage?.setItem("hh_notifications_enabled", "yes");
+  unlockHhDing();
+
+  if (!("Notification" in window)) {
+    alert("This browser does not support desktop notifications.");
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      notifyUser("Desktop alerts enabled. Roadblock requests will ding on this device.", {
+        title: "H&H Notifications Enabled",
+        important: true,
+        tag: "hh-notifications-enabled",
+      });
+    } else if (permission === "denied") {
+      alert("Notifications are blocked for this site. Enable them in Chrome/Edge site settings, then press Enable Notifications again.");
+    }
+  } catch (error) {
+    console.warn("Notification permission request failed", error);
+  }
+}
+
+function notifyRealtimeNotification(notification) {
+  const isRoadblockRequest = notification?.type === "roadblock_extension_request" && (notification.metadata || {}).status === "pending";
+  const title = notification?.title || (isRoadblockRequest ? "Roadblock Extension Requested" : "H&H Production");
+  const body = notification?.body || "New notification";
+  notifyUser(body, {
+    title,
+    important: isRoadblockRequest,
+    tag: isRoadblockRequest ? `roadblock-extension-${notification?.id || Date.now()}` : `hh-${notification?.id || Date.now()}`,
+    requireInteraction: isRoadblockRequest,
+  });
+}
+
+function notifyUser(message, options = {}) {
+  if (typeof window === "undefined") return;
+
+  if (options.important) playHhDing();
+
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  try {
+    const notification = new Notification(options.title || "H&H Production", {
+      body: message,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: options.tag || "hh-production",
+      renotify: Boolean(options.important),
+      requireInteraction: Boolean(options.requireInteraction || options.important),
+    });
+    notification.onclick = () => {
+      window.focus?.();
+      notification.close?.();
+    };
+  } catch (error) {
+    console.warn("Desktop notification failed", error);
+  }
+}
+
+function unlockHhDing() {
+  if (typeof window === "undefined") return;
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    ctx.resume?.();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.02);
+    window.setTimeout(() => ctx.close?.(), 80);
+  } catch (_) {}
+}
+
+function playHhDing() {
+  if (typeof window === "undefined") return;
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const first = ctx.createOscillator();
+    const second = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    first.type = "sine";
+    second.type = "sine";
+    first.frequency.setValueAtTime(880, ctx.currentTime);
+    second.frequency.setValueAtTime(1320, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.65);
+
+    first.connect(gain);
+    second.connect(gain);
+    gain.connect(ctx.destination);
+    first.start(ctx.currentTime);
+    first.stop(ctx.currentTime + 0.28);
+    second.start(ctx.currentTime + 0.10);
+    second.stop(ctx.currentTime + 0.65);
+    window.setTimeout(() => ctx.close?.(), 800);
+  } catch (error) {
+    console.warn("Notification sound failed", error);
   }
 }
 
