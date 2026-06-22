@@ -2759,7 +2759,7 @@ function NotificationsCenter({ ctx, access, reload }) {
           <span>{getNotificationPermissionLabel()}</span>
         </div>
         <div className="rowActions">
-          <button className="primary" onClick={enableHhNotifications}>Enable Notifications</button>
+          <button className="primary" onClick={() => enableHhNotifications(ctx, access)}>Enable Notifications</button>
           <button onClick={() => clearVisibleNotifications(ctx, access, visibleNotifications, reload)}>Clear Notifications</button>
         </div>
       </div>
@@ -5851,8 +5851,27 @@ async function createAppNotification(ctx, access, { type = "info", title, body, 
     metadata,
     read_by: [],
   };
-  const { error } = await supabase.from("app_notifications").insert(payload);
-  if (error && error.code !== "42P01") console.warn("Notification insert failed", error.message);
+
+  const { data, error } = await supabase.from("app_notifications").insert(payload).select().single();
+  if (error) {
+    if (error.code !== "42P01") console.warn("Notification insert failed", error.message);
+    return;
+  }
+
+  sendHhWebPush(data || payload);
+}
+
+async function sendHhWebPush(notification) {
+  if (typeof window === "undefined" || !notification?.company_id) return;
+  try {
+    await fetch("/api/send-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notification }),
+    });
+  } catch (error) {
+    console.warn("Web Push send request failed", error);
+  }
 }
 
 function canReceiveNotification(notification, access) {
@@ -6949,36 +6968,109 @@ function requestNotificationPermission() {
 }
 
 function getNotificationPermissionLabel() {
-  if (typeof window === "undefined" || !("Notification" in window)) return "Desktop notifications are not supported in this browser.";
-  if (Notification.permission === "granted") return "Enabled. This device checks for new jobs, status changes, requests, approvals, and denials every 5 seconds while the app is open.";
+  if (typeof window === "undefined" || !("Notification" in window)) return "Notifications are not supported in this browser.";
+  if (Notification.permission === "granted") {
+    const pushEnabled = window.localStorage?.getItem("hh_push_subscription_saved") === "yes";
+    return pushEnabled
+      ? "Enabled. This device can receive live in-app alerts and Web Push when supported by the device."
+      : "Browser permission is enabled. Press Enable Notifications again to register this device for closed-app push.";
+  }
   if (Notification.permission === "denied") return "Blocked by the browser. Enable notifications for this site in Chrome/Edge settings.";
-  return "Not enabled yet. Click Enable Notifications once on this device.";
+  return "Not enabled yet. On iPhone, install from Safari with Add to Home Screen first, then open that app icon and press Enable Notifications.";
 }
 
-async function enableHhNotifications() {
+async function enableHhNotifications(ctx = null, access = null) {
   if (typeof window === "undefined") return;
   window.localStorage?.setItem("hh_notifications_enabled", "yes");
   unlockHhDing();
 
   if (!("Notification" in window)) {
-    alert("This browser does not support desktop notifications.");
+    alert("This browser does not support notifications.");
     return;
   }
 
   try {
     const permission = await Notification.requestPermission();
     if (permission === "granted") {
-      notifyUser("Desktop alerts enabled. Roadblock requests will ding on this device.", {
+      await registerHhPushSubscription(ctx, access);
+      notifyUser("Notifications enabled on this device.", {
         title: "H&H Notifications Enabled",
         important: true,
         tag: "hh-notifications-enabled",
       });
     } else if (permission === "denied") {
-      alert("Notifications are blocked for this site. Enable them in Chrome/Edge site settings, then press Enable Notifications again.");
+      alert("Notifications are blocked for this site. Enable them in browser site settings, then press Enable Notifications again.");
     }
   } catch (error) {
     console.warn("Notification permission request failed", error);
   }
+}
+
+async function registerHhPushSubscription(ctx, access) {
+  if (typeof window === "undefined" || !supabase || !ctx?.company?.id) return false;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    window.localStorage?.removeItem("hh_push_subscription_saved");
+    return false;
+  }
+
+  const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  if (!publicKey) {
+    console.warn("VITE_VAPID_PUBLIC_KEY is missing. iOS/closed-app Web Push cannot register without it.");
+    window.localStorage?.removeItem("hh_push_subscription_saved");
+    alert("Push is not fully configured yet. Add VITE_VAPID_PUBLIC_KEY in Vercel and redeploy.");
+    return false;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    const payload = {
+      company_id: ctx.company.id,
+      endpoint: subscription.endpoint,
+      subscription: subscription.toJSON(),
+      role: normalizeRole(access?.role),
+      technician_id: access?.technicianId || null,
+      user_email: access?.email || null,
+      user_name: access?.fullName || access?.email || access?.role || null,
+      user_agent: navigator.userAgent || null,
+      last_seen_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("web_push_subscriptions")
+      .upsert(payload, { onConflict: "endpoint" });
+
+    if (error) {
+      console.warn("Push subscription save failed", error.message);
+      window.localStorage?.removeItem("hh_push_subscription_saved");
+      alert("Notification permission is on, but the push subscription table is missing or not updated. Run the web_push_subscriptions SQL migration.");
+      return false;
+    }
+
+    window.localStorage?.setItem("hh_push_subscription_saved", "yes");
+    return true;
+  } catch (error) {
+    console.warn("Push subscription registration failed", error);
+    window.localStorage?.removeItem("hh_push_subscription_saved");
+    alert("This device did not register for Web Push. On iPhone, use Safari → Add to Home Screen, then open the Home Screen app and enable notifications there.");
+    return false;
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
 }
 
 function notifyRealtimeNotification(notification) {
