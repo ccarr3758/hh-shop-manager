@@ -387,7 +387,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           />
         )}
 
-        {isMobile && (
+        {isMobile && !showNewJob && !editingJob && (
           <>
             {pwaInstall.showIosHint && (
               <div className="phoneInstallHint">
@@ -636,8 +636,11 @@ function MobileStyles() {
         .page { padding: 10px !important; }
         .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
         .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
-        .modalBackdrop { padding: 10px !important; align-items: flex-end !important; }
-        .modal { width: 100% !important; max-width: none !important; max-height: 92vh !important; overflow: auto !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(118px + env(safe-area-inset-bottom)) !important; }
+        .modalBackdrop { position: fixed !important; inset: 0 !important; z-index: 300 !important; padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom)) !important; align-items: flex-end !important; background: rgba(7,13,28,.62) !important; }
+        .modal { width: 100% !important; max-width: none !important; max-height: calc(100vh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important; overflow: auto !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(22px + env(safe-area-inset-bottom)) !important; }
+        .modal .formGrid { padding-bottom: 10px !important; }
+        .modal > button.primary.wide { position: sticky !important; bottom: 0 !important; z-index: 5 !important; margin-top: 12px !important; min-height: 58px !important; box-shadow: 0 -14px 26px rgba(255,255,255,.92), 0 12px 28px rgba(249,115,22,.24) !important; }
+        .modalFooter { position: sticky !important; bottom: 0 !important; z-index: 5 !important; background: linear-gradient(to top, #fff 78%, rgba(255,255,255,0)) !important; padding: 14px 0 0 !important; }
         .modal > .primary.wide, .modalFooter { position: sticky !important; bottom: 0 !important; z-index: 25 !important; margin: 14px -14px calc(-118px - env(safe-area-inset-bottom)) !important; padding: 12px 14px calc(18px + env(safe-area-inset-bottom)) !important; background: linear-gradient(180deg, rgba(248,250,252,.72), #f8fafc 34%) !important; box-shadow: 0 -12px 28px rgba(15,23,42,.12) !important; }
         .modal > .primary.wide { display: flex !important; align-items: center !important; justify-content: center !important; width: calc(100% + 28px) !important; min-height: 56px !important; border-radius: 0 !important; }
         .table, .performanceTable, .availabilityTable, .schedule { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
