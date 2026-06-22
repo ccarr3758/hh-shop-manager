@@ -1137,3 +1137,41 @@ button:not(.primary):not(.sidebarButton) {
   .modal { max-height: 94vh !important; padding: 16px !important; }
   .modalFooter { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
 }
+
+.roadblockRequestCard {
+  border: 2px solid rgba(249, 115, 22, 0.45) !important;
+  background: #fff7ed !important;
+}
+
+.roadblockRequestControls {
+  display: grid;
+  gap: 10px;
+  min-width: 240px;
+}
+
+.roadblockRequestControls label {
+  display: grid;
+  gap: 5px;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.roadblockRequestControls input {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(154, 52, 18, .24);
+  padding: 0 10px;
+  background: white;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.roadblockRequestActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

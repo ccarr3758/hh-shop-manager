@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Award,
   BarChart3,
@@ -60,6 +60,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const [cloudError, setCloudError] = useState("");
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const access = useMemo(() => makeAccessFromProfile(authProfile), [authProfile]);
+  const notifiedRealtimeIds = useRef(new Set());
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
   );
@@ -216,7 +217,19 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
+        { event: "INSERT", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
+        (payload) => {
+          const notification = payload.new;
+          if (notification?.id && !notifiedRealtimeIds.current.has(notification.id) && canReceiveNotification(notification, access)) {
+            notifiedRealtimeIds.current.add(notification.id);
+            notifyUser(`${notification.title || "H&H Production"}: ${notification.body || "New notification"}`);
+          }
+          loadAll();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "app_notifications", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .subscribe();
@@ -224,7 +237,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [state.company?.id]);
+  }, [state.company?.id, access]);
 
   const ctx = useMemo(() => makeContext(state), [state]);
   const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
@@ -827,6 +840,101 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
     await reload();
   }
 
+
+  function getPendingExtensionRequest(job) {
+    return getPendingRoadblockExtensionRequest(ctx, job.id);
+  }
+
+  async function requestRoadblockExtension(job) {
+    const pending = getPendingExtensionRequest(job);
+    if (pending) return alert("An extension request is already pending for this job.");
+
+    const reason = window.prompt("Required reason for roadblock extension:");
+    if (!reason || !reason.trim()) return alert("A reason is required.");
+
+    const requestedRaw = window.prompt("Requested extension time in minutes (example: 15, 30, 45, 60):", "30");
+    if (requestedRaw === null) return;
+    const requestedMinutes = Math.max(1, Math.round(Number(requestedRaw)));
+    if (!Number.isFinite(requestedMinutes) || requestedMinutes <= 0) return alert("Enter a valid number of minutes.");
+
+    const techName = ctx.tech(job.technician_id)?.name || access?.fullName || "Technician";
+    const metadata = {
+      status: "pending",
+      request_id: `${job.id}-${Date.now()}`,
+      requested_minutes: requestedMinutes,
+      approved_minutes: requestedMinutes,
+      reason: reason.trim(),
+      requested_by: techName,
+      requested_by_technician_id: job.technician_id || access?.technicianId || null,
+      requested_at: new Date().toISOString(),
+      current_book_hours: Number(job.book_hours || 0),
+      current_pause_reason: job.pause_reason || null,
+    };
+
+    await createAppNotification(ctx, access, {
+      type: "roadblock_extension_request",
+      title: "Roadblock Extension Requested",
+      body: `${techName} requested +${requestedMinutes} min on ${jobDisplayName(job, ctx)}. Reason: ${reason.trim()}`,
+      jobId: job.id,
+      technicianId: null,
+      audienceRoles: managerAudience(),
+      metadata,
+    });
+    await logAuditEvent(ctx, access, {
+      action: "Roadblock extension requested",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${techName} requested +${requestedMinutes} min on ${job.vehicle || "job"}`,
+      metadata,
+    });
+    notifyUser(`Roadblock extension requested: +${requestedMinutes} min`);
+    await reload();
+  }
+
+  async function endActiveHelpersForCompletedJob(job, completedAt = new Date()) {
+    const scheduledDate = job.scheduled_date || selectedDate || todayIso();
+    const activeHelpers = (ctx.jobHelpers || []).filter((helper) => helper.job_id === job.id && helper.scheduled_date === scheduledDate && isActiveHelper(helper));
+    if (!activeHelpers.length) return [];
+
+    const endTime = shortTime(completedAt.toTimeString());
+    const ended = [];
+    for (const helper of activeHelpers) {
+      const actualHours = calculateWorkingHoursBetween(helper.start_time, endTime, ctx);
+      const creditedHours = calculateHelperCreditedHours(job, helper.start_time, endTime, ctx);
+      const { error } = await supabase
+        .from("job_helpers")
+        .update({
+          end_time: endTime,
+          book_hours: creditedHours,
+          actual_hours: actualHours,
+          status: "ended",
+          ended_at: completedAt.toISOString(),
+          updated_at: completedAt.toISOString(),
+        })
+        .eq("id", helper.id);
+      if (error) throw error;
+      ended.push({ helper, actualHours, creditedHours });
+    }
+
+    await logAuditEvent(ctx, access, {
+      action: "Helper sessions auto-ended",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${ended.length} helper session${ended.length === 1 ? "" : "s"} ended when ${job.vehicle || "job"} was completed`,
+      metadata: { job_id: job.id, ended: ended.map(({ helper, actualHours, creditedHours }) => ({ helper_id: helper.id, technician_id: helper.technician_id, actualHours, creditedHours })) },
+    });
+    await createAppNotification(ctx, access, {
+      type: "helper_auto_ended",
+      title: "Helper Session Ended",
+      body: `${ended.length} helper session${ended.length === 1 ? "" : "s"} ended automatically when ${jobDisplayName(job, ctx)} was completed.`,
+      jobId: job.id,
+      technicianId: job.technician_id,
+      audienceRoles: managerAudience(),
+      metadata: { count: ended.length },
+    });
+    return ended;
+  }
+
   async function editJobStartTime(job) {
     const currentStart = getEffectiveJobStartTime(job);
     const entered = window.prompt("Edit job start time (example: 1:30 PM or 13:30)", currentStart);
@@ -887,12 +995,18 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       .eq("id", job.id);
 
     if (error) return alert(error.message);
+    let autoEndedHelpers = [];
+    try {
+      autoEndedHelpers = await endActiveHelpersForCompletedJob(job, now);
+    } catch (helperError) {
+      return alert(`Job was completed, but helper sessions could not be ended automatically: ${helperError.message}`);
+    }
     await logAuditEvent(ctx, access, {
       action: "Job completed",
       entityType: "job",
       entityId: job.id,
       summary: `${job.vehicle || "Job"} completed with ${actualHours} active hrs`,
-      metadata: { actualHours, adjustedBook, efficiency },
+      metadata: { actualHours, adjustedBook, efficiency, autoEndedHelpers: autoEndedHelpers.length },
     });
     await createAppNotification(ctx, access, {
       type: "job_completed",
@@ -1278,6 +1392,14 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
                 {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
                 {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
+                {ctx.status(job.status_id)?.name === "Paused" && (
+                  <button
+                    disabled={Boolean(getPendingExtensionRequest(job))}
+                    onClick={() => requestRoadblockExtension(job)}
+                  >
+                    {getPendingExtensionRequest(job) ? "Extension Requested" : "Request Extension"}
+                  </button>
+                )}
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
                 <button onClick={() => setEditingJob(job)}>{canEditJobs(access) ? "Edit" : "Job Details"}</button>
                 {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
@@ -2478,11 +2600,22 @@ function NotificationsCenter({ ctx, access, reload }) {
   const notifications = (ctx.notifications || [])
     .filter((notification) => canReceiveNotification(notification, access))
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  const pendingRoadblockRequests = notifications.filter(isPendingRoadblockExtensionRequest);
+  const regularNotifications = notifications.filter((notification) => !isPendingRoadblockExtensionRequest(notification));
 
   return (
     <Panel title="Notifications" chip={`${notifications.length} alerts`}>
       <div className="notificationList">
-        {notifications.map((notification) => {
+        {pendingRoadblockRequests.map((notification) => (
+          <PendingRoadblockExtensionCard
+            key={notification.id}
+            notification={notification}
+            ctx={ctx}
+            access={access}
+            reload={reload}
+          />
+        ))}
+        {regularNotifications.map((notification) => {
           const read = getNotificationRead(notification, access);
           return (
             <div className={`notificationCard ${read ? "read" : "unread"}`} key={notification.id}>
@@ -2498,6 +2631,136 @@ function NotificationsCenter({ ctx, access, reload }) {
         {!notifications.length && <div className="emptyState"><h2>No notifications</h2><p>Status changes, assigned jobs, helper changes, streaks, and records will appear here.</p></div>}
       </div>
     </Panel>
+  );
+}
+
+function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
+  const metadata = notification.metadata || {};
+  const job = (ctx.jobs || []).find((item) => item.id === notification.job_id);
+  const requestedMinutes = Number(metadata.requested_minutes || 0);
+  const [approvedMinutes, setApprovedMinutes] = useState(Number(metadata.approved_minutes || requestedMinutes || 30));
+  const [managerNote, setManagerNote] = useState("");
+  const techName = metadata.requested_by || ctx.tech(metadata.requested_by_technician_id || job?.technician_id)?.name || "Technician";
+
+  async function updateNotificationStatus(status, extraMetadata = {}) {
+    const nextMetadata = {
+      ...metadata,
+      ...extraMetadata,
+      status,
+      decided_by: access?.fullName || access?.email || access?.role || "Manager",
+      decided_at: new Date().toISOString(),
+    };
+    const { error } = await supabase
+      .from("app_notifications")
+      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .eq("id", notification.id);
+    if (error) return alert(error.message);
+    return nextMetadata;
+  }
+
+  async function approveRequest() {
+    const minutes = Math.max(1, Math.round(Number(approvedMinutes)));
+    if (!Number.isFinite(minutes) || minutes <= 0) return alert("Enter a valid approved extension time.");
+    if (!job) return alert("Could not find the job attached to this request.");
+
+    const addedHours = roundHours(minutes / 60);
+    const previousBookHours = Number(job.book_hours || 0);
+    const nextBookHours = roundHours(previousBookHours + addedHours);
+    const noteLine = `Roadblock extension approved: +${minutes} min by ${access?.fullName || access?.email || access?.role || "manager"}. Tech requested +${requestedMinutes} min. Reason: ${metadata.reason || "No reason recorded"}${managerNote ? `. Manager note: ${managerNote}` : ""}`;
+
+    const { error: jobError } = await supabase
+      .from("jobs")
+      .update({
+        book_hours: nextBookHours,
+        notes: `${job.notes || ""}
+${noteLine}`.trim(),
+        approved_variance_hours: roundHours(Number(job.approved_variance_hours || 0) + addedHours),
+        approved_variance_reason: metadata.reason || job.approved_variance_reason || "Roadblock extension",
+        approved_variance_approved_by: access?.fullName || access?.email || access?.role || "Manager",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+    if (jobError) return alert(jobError.message);
+
+    const nextMetadata = await updateNotificationStatus("approved", {
+      approved_minutes: minutes,
+      manager_note: managerNote || null,
+      previous_book_hours: previousBookHours,
+      new_book_hours: nextBookHours,
+    });
+    if (!nextMetadata) return;
+
+    await logAuditEvent(ctx, access, {
+      action: "Roadblock extension approved",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${job.vehicle || "Job"} roadblock extension approved for +${minutes} min`,
+      metadata: nextMetadata,
+    });
+    await createAppNotification(ctx, access, {
+      type: "roadblock_extension_approved",
+      title: "Extension Approved",
+      body: `${jobDisplayName(job, ctx)} extension approved for +${minutes} min${managerNote ? `. ${managerNote}` : ""}`,
+      jobId: job.id,
+      technicianId: metadata.requested_by_technician_id || job.technician_id,
+      audienceRoles: ["technician", "foreman"],
+      metadata: nextMetadata,
+    });
+    notifyUser(`Extension approved: +${minutes} min`);
+    await reload();
+  }
+
+  async function denyRequest() {
+    const nextMetadata = await updateNotificationStatus("denied", {
+      approved_minutes: 0,
+      manager_note: managerNote || null,
+    });
+    if (!nextMetadata) return;
+
+    await logAuditEvent(ctx, access, {
+      action: "Roadblock extension denied",
+      entityType: "job",
+      entityId: notification.job_id,
+      summary: `${job?.vehicle || "Job"} roadblock extension denied`,
+      metadata: nextMetadata,
+    });
+    await createAppNotification(ctx, access, {
+      type: "roadblock_extension_denied",
+      title: "Extension Denied",
+      body: `${job ? jobDisplayName(job, ctx) : "Roadblock"} extension request denied${managerNote ? `. ${managerNote}` : ""}`,
+      jobId: notification.job_id,
+      technicianId: metadata.requested_by_technician_id || job?.technician_id || null,
+      audienceRoles: ["technician", "foreman"],
+      metadata: nextMetadata,
+    });
+    notifyUser("Extension request denied");
+    await reload();
+  }
+
+  return (
+    <div className="notificationCard roadblockRequestCard unread">
+      <div>
+        <strong>Roadblock Extension Request</strong>
+        <p><b>{techName}</b> requested <b>+{requestedMinutes} min</b> on {job ? jobDisplayName(job, ctx) : "a job"}.</p>
+        <p><b>Reason:</b> {metadata.reason || "No reason recorded"}</p>
+        <p><b>Current roadblock:</b> {metadata.current_pause_reason || job?.pause_reason || "Roadblocked / paused"}</p>
+        <span>{notification.created_at ? new Date(notification.created_at).toLocaleString() : ""}</span>
+      </div>
+      <div className="roadblockRequestControls">
+        <label>
+          Approved time, minutes
+          <input type="number" min="1" step="1" value={approvedMinutes} onChange={(event) => setApprovedMinutes(event.target.value)} />
+        </label>
+        <label>
+          Manager note
+          <input value={managerNote} onChange={(event) => setManagerNote(event.target.value)} placeholder="Optional" />
+        </label>
+        <div className="roadblockRequestActions">
+          <button className="primary" onClick={approveRequest}>Approve Extension</button>
+          <button onClick={denyRequest}>Deny Request</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -5442,6 +5705,18 @@ function canReceiveNotification(notification, access) {
   const roleMatch = !audience.length || audience.includes(role);
   const techMatch = !notification.technician_id || notification.technician_id === access?.technicianId;
   return roleMatch && techMatch;
+}
+
+
+function isPendingRoadblockExtensionRequest(notification) {
+  return notification?.type === "roadblock_extension_request" && (notification.metadata || {}).status === "pending";
+}
+
+function getPendingRoadblockExtensionRequest(ctx, jobId) {
+  if (!jobId) return null;
+  return (ctx.notifications || []).find(
+    (notification) => notification.job_id === jobId && isPendingRoadblockExtensionRequest(notification)
+  ) || null;
 }
 
 async function markNotificationRead(ctx, access, notification, reload) {
