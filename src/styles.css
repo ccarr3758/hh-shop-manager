@@ -1042,3 +1042,98 @@ button:not(.primary):not(.sidebarButton) {
     justify-content: flex-end;
   }
 }
+
+/* v4.1 desktop sidebar + modal usability fixes */
+@media (min-width: 1101px) {
+  .app { grid-template-columns: 276px 1fr; }
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    padding: 18px 16px;
+  }
+  .brand { margin-bottom: 8px; }
+  .brandLogo { width: 48px; height: 48px; border-radius: 16px; }
+  .brand h1 { font-size: 17px; line-height: 1.1; }
+  .brand p { font-size: 11px; line-height: 1.25; }
+  .sideNavGrouped { display: grid; gap: 10px; }
+  .navGroup {
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 18px;
+    background: rgba(255,255,255,.035);
+    overflow: hidden;
+  }
+  .navGroup summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 10px 12px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 1000;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  .navGroup summary::-webkit-details-marker { display: none; }
+  .navGroup summary::after {
+    content: "▾";
+    float: right;
+    color: #f97316;
+    font-size: 11px;
+  }
+  .navGroup:not([open]) summary::after { content: "▸"; }
+  .navGroupItems { display: grid; gap: 6px; padding: 0 8px 8px; }
+  .sidebar nav .sidebarButton {
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+  .sidebar nav .sidebarButton span { font-size: 14px; }
+  .sideCard { margin-top: auto; padding: 14px; border-radius: 18px; }
+  .sideCard strong { font-size: 17px; }
+  .sideCard p { margin: 6px 0 10px; font-size: 12px; }
+}
+
+.modalBackdrop {
+  align-items: center;
+}
+.modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(92vh, 920px);
+  overflow: hidden;
+}
+.modalHeader {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: white;
+  padding-bottom: 10px;
+  margin-bottom: 0;
+}
+.modalBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px 14px;
+  -webkit-overflow-scrolling: touch;
+}
+.modalFooter {
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -2px -2px;
+  padding: 12px 2px 2px;
+  background: linear-gradient(180deg, rgba(255,255,255,.82), #fff 35%);
+  border-top: 1px solid rgba(226,232,240,.9);
+}
+.modalFooter .wide { margin-top: 0; min-height: 52px; }
+@media (max-width: 640px) {
+  .modal { max-height: 94vh !important; padding: 16px !important; }
+  .modalFooter { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+}

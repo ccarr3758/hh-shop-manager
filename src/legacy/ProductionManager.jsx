@@ -40,6 +40,17 @@ const nav = [
   ["Cloud Status", Database],
 ];
 
+const navGroups = [
+  ["Command", ["Performance", "Mobile Manager", "Notifications", "Hall of Fame"]],
+  ["Operations", ["Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log"]],
+  ["Shop Setup", ["Technicians", "Tech Clock", "Products"]],
+  ["System", ["Admin", "Cloud Status"]],
+];
+
+function getNavIcon(name) {
+  return nav.find(([navName]) => navName === name)?.[1] || LayoutDashboard;
+}
+
 export default function ProductionManager({ authProfile, onSignOut }) {
   const [view, setView] = useState("Dashboard");
   const [showNewJob, setShowNewJob] = useState(false);
@@ -270,17 +281,31 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           </div>
         </div>
 
-        <nav>
-          {nav.filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon]) => (
-          <button
-  key={name}
-  className={`sidebarButton ${view === name ? "active" : ""}`}
-  onClick={() => setView(name)}
->
-  <Icon size={18} />
-  <span>{name}</span>
-</button>
-          ))}
+        <nav className="sideNavGrouped">
+          {navGroups.map(([groupName, itemNames]) => {
+            const groupItems = itemNames.filter((name) => allowedViewNames.includes(name));
+            if (!groupItems.length) return null;
+            return (
+              <details key={groupName} className="navGroup" open>
+                <summary>{groupName}</summary>
+                <div className="navGroupItems">
+                  {groupItems.map((name) => {
+                    const Icon = getNavIcon(name);
+                    return (
+                      <button
+                        key={name}
+                        className={`sidebarButton ${view === name ? "active" : ""}`}
+                        onClick={() => setView(name)}
+                      >
+                        <Icon size={18} />
+                        <span>{name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            );
+          })}
         </nav>
 
         <div className="sideCard">
@@ -1245,11 +1270,11 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
               <DamagePhotoPanel job={job} ctx={ctx} onUpload={uploadDamagePhotos} />
               <div className="mobileActionGrid">
                 <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
-                <button onClick={() => editJobStartTime(job)}>Edit Start</button>
+                {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
                 {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
                 <button onClick={() => updateStatus(job, "QC")}>QC</button>
-                <button onClick={() => setEditingJob(job)}>Edit</button>
-                <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>
+                <button onClick={() => setEditingJob(job)}>{canEditJobs(access) ? "Edit" : "Job Details"}</button>
+                {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
                 <button className="complete" onClick={() => completeJob(job)}>
                   Complete
                 </button>
@@ -2152,7 +2177,7 @@ function Foreman({ jobs, ctx, reload, access }) {
             <div className="buttonGrid">
               {paused && <button onClick={() => setStatus(job, paused)}>Pause</button>}
               {inProgress && <button onClick={() => setStatus(job, inProgress)}>Start</button>}
-              {ctx.status(job.status_id)?.name === "In Progress" && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
+              {canEditJobs(access) && ctx.status(job.status_id)?.name === "In Progress" && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
               {complete && (
                 <button className="completeBtn" onClick={() => completeJob(job)}>
                   Complete
@@ -2239,8 +2264,8 @@ function ProductionLog({ jobs, ctx, reload, setEditingJob, access }) {
                       <ImagePlus size={15} /> {(ctx.damagePhotos || []).filter((photo) => photo.job_id === j.id).length}
                     </button>
                     <div className="rowActions">
-                      <button onClick={() => setEditingJob(j)}>Edit</button>
-                      <button onClick={() => deleteJob(j.id)}>Delete</button>
+                      <button onClick={() => setEditingJob(j)}>{canEditJobs(access) ? "Edit" : "Details"}</button>
+                      {canEditJobs(access) && <button onClick={() => deleteJob(j.id)}>Delete</button>}
                     </div>
                   </div>
                 );
@@ -2961,6 +2986,14 @@ function MiniStat({ label, value }) {
 
 function canViewTechnicianDevelopment(access) {
   return ["admin", "manager", "foreman"].includes(normalizeRole(access?.role));
+}
+
+function canEditJobs(access) {
+  return ["admin", "manager", "foreman", "service_writer"].includes(normalizeRole(access?.role));
+}
+
+function isTechnicianOnly(access) {
+  return normalizeRole(access?.role) === "technician";
 }
 
 function buildTechnicianDevelopmentSummary(technician, jobs, ctx) {
@@ -4488,6 +4521,85 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
   const totalBookHours = totalProductLineHours(productLines);
   const totalLabor = totalProductLineLabor(productLines);
   const primaryProductId = productLines[0]?.product_id || null;
+  const technicianDetailsOnly = isTechnicianOnly(access);
+
+  async function saveTechJobDetails(e) {
+    e.preventDefault();
+
+    const payload = {
+      qc: draft.qc,
+      notes: draft.notes,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("jobs").update(payload).eq("id", job.id);
+    if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: "Job details updated",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${jobDisplayName(job, ctx)} details updated`,
+      metadata: { before: { qc: job.qc, notes: job.notes }, after: payload },
+    });
+
+    await reload();
+    onClose();
+  }
+
+  if (technicianDetailsOnly) {
+    return (
+      <div className="modalBackdrop">
+        <form className="modal" onSubmit={saveTechJobDetails}>
+          <div className="modalHeader">
+            <h3>Job Details</h3>
+            <button type="button" onClick={onClose}>×</button>
+          </div>
+
+          <div className="formGrid">
+            <label>
+              Customer
+              <input value={draft.customer} readOnly />
+            </label>
+            <label>
+              Vehicle
+              <input value={draft.vehicle} readOnly />
+            </label>
+            <label>
+              Product
+              <input value={ctx.jobProductsSummary(job)} readOnly />
+            </label>
+            <label>
+              Book Hours
+              <input value={Number(job.book_hours || 0).toFixed(2)} readOnly />
+            </label>
+            <label>
+              Status
+              <input value={ctx.status(job.status_id)?.name || ""} readOnly />
+            </label>
+            <label>
+              Scheduled Date
+              <input value={draft.scheduled_date} readOnly />
+            </label>
+            <label>
+              QC
+              <select value={draft.qc} onChange={(e) => setDraft({ ...draft, qc: e.target.value })}>
+                <option>Yes</option>
+                <option>No</option>
+                <option>N/A</option>
+              </select>
+            </label>
+            <label className="fullWidth">
+              Job Details / Notes
+              <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+            </label>
+          </div>
+
+          <button className="primary wide">Save Job Details</button>
+        </form>
+      </div>
+    );
+  }
 
   async function saveJob(e) {
     e.preventDefault();
@@ -4550,6 +4662,7 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
           <button type="button" onClick={onClose}>×</button>
         </div>
 
+        <div className="modalBody">
         <div className="formGrid">
           <label>
             Customer
@@ -4646,8 +4759,11 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
             <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
           </label>
         </div>
+        </div>
 
-        <button className="primary wide">Save Job</button>
+        <div className="modalFooter">
+          <button className="primary wide">Save Job</button>
+        </div>
       </form>
     </div>
   );
@@ -4655,6 +4771,9 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
 
 function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
   const firstProduct = ctx.products[0] || null;
+  const technicianWalkInMode = isTechnicianOnly(access);
+  const assignedTechnicianId = technicianWalkInMode ? access?.technicianId : null;
+  const defaultScheduledStatus = ctx.statuses.find((s) => ["scheduled", "open"].includes((s.name || "").toLowerCase())) || ctx.statuses[0] || null;
   const [productLines, setProductLines] = useState(() => normalizeProductLines(ctx, [makeProductLine(firstProduct)], true));
   const totalBookHours = totalProductLineHours(productLines);
   const totalLabor = totalProductLineLabor(productLines);
@@ -4664,21 +4783,27 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
     e.preventDefault();
 
     const form = new FormData(e.currentTarget);
+    const selectedTechnicianId = technicianWalkInMode ? assignedTechnicianId : form.get("technician_id");
+    const selectedStatusId = technicianWalkInMode ? defaultScheduledStatus?.id : form.get("status_id");
+
+    if (technicianWalkInMode && !selectedTechnicianId) {
+      return alert("Your user profile is not linked to a technician record, so this walk-in job cannot be assigned to you.");
+    }
 
     const job = {
       company_id: ctx.company.id,
       customer: form.get("customer"),
       vehicle: form.get("vehicle"),
       product_id: primaryProductId,
-      technician_id: form.get("technician_id"),
-      status_id: form.get("status_id"),
-      delay_reason_id: form.get("delay_reason_id") || null,
+      technician_id: selectedTechnicianId,
+      status_id: selectedStatusId,
+      delay_reason_id: technicianWalkInMode ? null : (form.get("delay_reason_id") || null),
       start_time: form.get("start_time"),
       book_hours: totalBookHours,
       actual_hours: null,
       qc: form.get("qc"),
       scheduled_date: form.get("scheduled_date") || selectedDate || todayIso(),
-      labor_sold: totalLabor || null,
+      labor_sold: technicianWalkInMode ? null : (totalLabor || null),
     };
 
     const { data, error } = await supabase.from("jobs").insert(job).select("id").single();
@@ -4721,7 +4846,7 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
     <div className="modalBackdrop">
       <form className="modal" onSubmit={submit}>
         <div className="modalHeader">
-          <h3>New job</h3>
+          <h3>{technicianWalkInMode ? "Add Walk-In Job" : "New job"}</h3>
           <button type="button" onClick={onClose}>
             ×
           </button>
@@ -4736,40 +4861,55 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
             Vehicle
             <input name="vehicle" required />
           </label>
-          <ProductLinesEditor ctx={ctx} lines={productLines} setLines={setProductLines} />
-          <label>
-            Technician
-            <select name="technician_id">
-              {ctx.technicians
-                .filter((t) => t.active)
-                .map((t) => (
-                  <option value={t.id} key={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Status
-            <select name="status_id">
-              {ctx.statuses.map((s) => (
-                <option value={s.id} key={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Delay reason
-            <select name="delay_reason_id">
-              <option value="">None</option>
-              {ctx.delayReasons.map((d) => (
-                <option value={d.id} key={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ProductLinesEditor ctx={ctx} lines={productLines} setLines={setProductLines} lockBookTime={technicianWalkInMode} hideLabor={technicianWalkInMode} />
+          {technicianWalkInMode ? (
+            <>
+              <label>
+                Assigned Tech
+                <input value={ctx.tech(assignedTechnicianId)?.name || "You"} readOnly />
+              </label>
+              <label>
+                Status
+                <input value={defaultScheduledStatus?.name || "Scheduled"} readOnly />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Technician
+                <select name="technician_id">
+                  {ctx.technicians
+                    .filter((t) => t.active)
+                    .map((t) => (
+                      <option value={t.id} key={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select name="status_id">
+                  {ctx.statuses.map((s) => (
+                    <option value={s.id} key={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Delay reason
+                <select name="delay_reason_id">
+                  <option value="">None</option>
+                  {ctx.delayReasons.map((d) => (
+                    <option value={d.id} key={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           <label>
             QC
             <select name="qc">
@@ -4790,21 +4930,27 @@ function NewJobModal({ onClose, ctx, reload, selectedDate, access }) {
             Total Book Hours
             <input type="number" step="0.25" value={totalBookHours} readOnly />
           </label>
+          {technicianWalkInMode && (
+            <p className="fullWidth muted">Book time is pulled from the selected product and locks when the job is added. Technicians cannot edit book time.</p>
+          )}
         </div>
 
-        <button className="primary wide">Add job</button>
+        <button className="primary wide">{technicianWalkInMode ? "Add Walk-In Job" : "Add job"}</button>
       </form>
     </div>
   );
 }
 
-function ProductLinesEditor({ ctx, lines, setLines }) {
+function ProductLinesEditor({ ctx, lines, setLines, lockBookTime = false, hideLabor = false }) {
   const safeLines = normalizeProductLines(ctx, lines, true);
   const totalHours = totalProductLineHours(safeLines);
   const totalLabor = totalProductLineLabor(safeLines);
 
   function updateLine(index, patch) {
-    const next = safeLines.map((line, i) => (i === index ? { ...line, ...patch } : line));
+    const sanitizedPatch = lockBookTime
+      ? Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "book_hours" && key !== "labor_price"))
+      : patch;
+    const next = safeLines.map((line, i) => (i === index ? { ...line, ...sanitizedPatch } : line));
     setLines(normalizeProductLines(ctx, next, true));
   }
 
@@ -4844,19 +4990,21 @@ function ProductLinesEditor({ ctx, lines, setLines }) {
           </label>
           <label>
             Book Hours
-            <input type="number" step="0.25" value={line.book_hours} onChange={(e) => updateLine(index, { book_hours: e.target.value })} />
+            <input type="number" step="0.25" value={line.book_hours} readOnly={lockBookTime} onChange={(e) => updateLine(index, { book_hours: e.target.value })} />
           </label>
-          <label>
-            Labor
-            <input type="number" step="1" value={line.labor_price} onChange={(e) => updateLine(index, { labor_price: e.target.value })} />
-          </label>
+          {!hideLabor && (
+            <label>
+              Labor
+              <input type="number" step="1" value={line.labor_price} readOnly={lockBookTime} onChange={(e) => updateLine(index, { labor_price: e.target.value })} />
+            </label>
+          )}
           <button className="productLineRemove" type="button" onClick={() => removeProduct(index)} disabled={safeLines.length <= 1}>Remove</button>
         </div>
       ))}
 
       <div className="productLinesTotal">
         <span>Total Book Time: <strong>{totalHours.toFixed(2)} hrs</strong></span>
-        <span>Total Labor: <strong>{money(totalLabor)}</strong></span>
+        {!hideLabor && <span>Total Labor: <strong>{money(totalLabor)}</strong></span>}
       </div>
     </div>
   );
