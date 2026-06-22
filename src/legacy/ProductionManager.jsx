@@ -2672,7 +2672,7 @@ function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
     };
     const { error } = await supabase
       .from("app_notifications")
-      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .update({ metadata: nextMetadata })
       .eq("id", notification.id);
     if (error) return alert(error.message);
     return nextMetadata;
