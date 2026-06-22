@@ -14,8 +14,7 @@
     "react": "latest",
     "react-dom": "latest",
     "@supabase/supabase-js": "latest",
-    "lucide-react": "latest",
-    "web-push": "latest"
+    "lucide-react": "latest"
   },
   "devDependencies": {}
 }
