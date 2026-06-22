@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import crypto from "node:crypto";
+import webPush from "web-push";
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,82 +30,32 @@ function shouldReceive(subscription, notification) {
   return true;
 }
 
-function base64UrlToBuffer(value) {
-  const padded = `${value}${"=".repeat((4 - (value.length % 4)) % 4)}`;
-  return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-}
-
-function bufferToBase64Url(value) {
-  return Buffer.from(value)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
-
-function derToJose(signature) {
-  let offset = 3;
-  let rLength = signature[offset - 1];
-  let r = signature.slice(offset, offset + rLength);
-  offset += rLength + 1;
-  let sLength = signature[offset - 1];
-  let s = signature.slice(offset, offset + sLength);
-
-  if (r.length > 32) r = r.slice(r.length - 32);
-  if (s.length > 32) s = s.slice(s.length - 32);
-  if (r.length < 32) r = Buffer.concat([Buffer.alloc(32 - r.length), r]);
-  if (s.length < 32) s = Buffer.concat([Buffer.alloc(32 - s.length), s]);
-  return Buffer.concat([r, s]);
-}
-
-function getVapidPrivateKey() {
-  const publicBytes = base64UrlToBuffer(vapidPublicKey);
-  if (publicBytes.length !== 65 || publicBytes[0] !== 4) throw new Error("Invalid VAPID public key");
-  const x = bufferToBase64Url(publicBytes.slice(1, 33));
-  const y = bufferToBase64Url(publicBytes.slice(33, 65));
-  const jwk = {
-    kty: "EC",
-    crv: "P-256",
-    x,
-    y,
-    d: vapidPrivateKey,
-  };
-  return crypto.createPrivateKey({ key: jwk, format: "jwk" });
-}
-
-function vapidHeaders(endpoint) {
-  const audience = new URL(endpoint).origin;
-  const header = bufferToBase64Url(Buffer.from(JSON.stringify({ typ: "JWT", alg: "ES256" })));
-  const payload = bufferToBase64Url(Buffer.from(JSON.stringify({ aud: audience, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60, sub: vapidSubject })));
-  const signingInput = `${header}.${payload}`;
-  const derSignature = crypto.sign("sha256", Buffer.from(signingInput), getVapidPrivateKey());
-  const signature = bufferToBase64Url(derToJose(derSignature));
-  const jwt = `${signingInput}.${signature}`;
-
-  return {
-    TTL: "60",
-    Authorization: `vapid t=${jwt}, k=${vapidPublicKey}`,
-  };
-}
-
-async function sendWakePush(subscription) {
-  const endpoint = subscription?.endpoint || subscription?.subscription?.endpoint;
-  if (!endpoint) throw new Error("Missing push endpoint");
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: vapidHeaders(endpoint),
-  });
-  if (!response.ok) {
-    const error = new Error(`Push failed: ${response.status}`);
-    error.statusCode = response.status;
-    throw error;
+function toPushSubscription(row) {
+  if (row?.subscription?.endpoint) return row.subscription;
+  if (row?.endpoint && row?.subscription?.keys) {
+    return { endpoint: row.endpoint, keys: row.subscription.keys };
   }
+  return null;
+}
+
+function buildPushPayload(notification) {
+  return JSON.stringify({
+    title: notification.title || "H&H Production",
+    body: notification.body || "New notification",
+    tag: notification.id || notification.type || "hh-production-push",
+    url: "/",
+    requireInteraction: notification.type === "roadblock_extension_request",
+    notificationId: notification.id || null,
+    type: notification.type || "info",
+  });
 }
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   if (!supabaseUrl || !serviceRoleKey) return res.status(500).json({ error: "Missing Supabase server env vars" });
   if (!vapidPublicKey || !vapidPrivateKey) return res.status(500).json({ error: "Missing VAPID env vars" });
+
+  webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
   const notification = req.body?.notification;
   if (!notification?.company_id) return res.status(400).json({ error: "Missing notification.company_id" });
@@ -118,11 +68,15 @@ export default async function handler(req, res) {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const payload = buildPushPayload(notification);
   const targets = (subscriptions || []).filter((subscription) => shouldReceive(subscription, notification));
+
   const results = await Promise.allSettled(
     targets.map(async (target) => {
+      const pushSubscription = toPushSubscription(target);
+      if (!pushSubscription) throw new Error("Missing stored push subscription");
       try {
-        await sendWakePush(target);
+        await webPush.sendNotification(pushSubscription, payload, { TTL: 300, urgency: "high" });
         return { id: target.id, ok: true };
       } catch (error) {
         const statusCode = error?.statusCode;
@@ -136,5 +90,10 @@ export default async function handler(req, res) {
 
   const sent = results.filter((result) => result.status === "fulfilled").length;
   const failed = results.length - sent;
-  return res.status(200).json({ ok: true, targets: targets.length, sent, failed });
+  const errors = results
+    .filter((result) => result.status === "rejected")
+    .slice(0, 3)
+    .map((result) => result.reason?.message || String(result.reason));
+
+  return res.status(200).json({ ok: true, targets: targets.length, sent, failed, errors });
 }

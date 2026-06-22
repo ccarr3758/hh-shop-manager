@@ -1,4 +1,4 @@
-const CACHE_VERSION = "mobile-v5-ios-web-push-2026-06-22";
+const CACHE_VERSION = "mobile-v6-ios-web-push-payload-2026-06-22";
 const CACHE_NAME = `hh-shop-manager-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/",
