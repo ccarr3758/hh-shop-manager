@@ -61,6 +61,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const access = useMemo(() => makeAccessFromProfile(authProfile), [authProfile]);
   const notifiedRealtimeIds = useRef(new Set());
+  const notificationPollSeeded = useRef(false);
+  const notificationPollRunning = useRef(false);
+  const notificationAudioRef = useRef(null);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
   );
@@ -70,6 +73,14 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__hhNotificationAudioRef = notificationAudioRef;
+    return () => {
+      if (window.__hhNotificationAudioRef === notificationAudioRef) delete window.__hhNotificationAudioRef;
+    };
   }, []);
 
   const pwaInstall = usePwaInstall();
@@ -238,6 +249,71 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       supabase.removeChannel(channel);
     };
   }, [state.company?.id, access]);
+
+  useEffect(() => {
+    if (!supabase || !state.company?.id) return undefined;
+
+    const role = normalizeRole(access?.role);
+    const shouldPoll = ["admin", "manager", "foreman"].includes(role);
+    if (!shouldPoll) return undefined;
+
+    let cancelled = false;
+
+    async function pollForManagerNotifications({ silent = false } = {}) {
+      if (notificationPollRunning.current) return;
+      notificationPollRunning.current = true;
+
+      try {
+        const notifications = await fetchOptionalNotifications(state.company.id);
+        if (cancelled) return;
+
+        const visibleNotifications = (notifications || []).filter((notification) => canReceiveNotification(notification, access));
+        const pendingRoadblockRequests = visibleNotifications.filter(isPendingRoadblockExtensionRequest);
+
+        if (!notificationPollSeeded.current) {
+          visibleNotifications.forEach((notification) => {
+            if (notification?.id) notifiedRealtimeIds.current.add(notification.id);
+          });
+          notificationPollSeeded.current = true;
+          setState((current) => ({ ...current, notifications }));
+          return;
+        }
+
+        const newRequests = pendingRoadblockRequests
+          .filter((notification) => notification?.id && !notifiedRealtimeIds.current.has(notification.id))
+          .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+
+        newRequests.forEach((notification) => {
+          notifiedRealtimeIds.current.add(notification.id);
+          if (!silent) notifyRealtimeNotification(notification);
+        });
+
+        setState((current) => ({ ...current, notifications }));
+      } catch (error) {
+        console.warn("Notification polling failed", error);
+      } finally {
+        notificationPollRunning.current = false;
+      }
+    }
+
+    pollForManagerNotifications({ silent: true });
+    const intervalId = window.setInterval(() => pollForManagerNotifications(), 5000);
+
+    const handleFocus = () => pollForManagerNotifications();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") pollForManagerNotifications();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [state.company?.id, access?.role, access?.technicianId]);
 
   const ctx = useMemo(() => makeContext(state), [state]);
   const allowedViewNames = useMemo(() => getAllowedViewNames(access), [access]);
@@ -2673,7 +2749,7 @@ function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
     };
     const { error } = await supabase
       .from("app_notifications")
-      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .update({ metadata: nextMetadata })
       .eq("id", notification.id);
     if (error) return alert(error.message);
     return nextMetadata;
@@ -6798,7 +6874,7 @@ function requestNotificationPermission() {
 
 function getNotificationPermissionLabel() {
   if (typeof window === "undefined" || !("Notification" in window)) return "Desktop notifications are not supported in this browser.";
-  if (Notification.permission === "granted") return "Enabled. Roadblock requests will ding and show a desktop notification while this app is open.";
+  if (Notification.permission === "granted") return "Enabled. This device checks for manager alerts every 5 seconds while the app is open.";
   if (Notification.permission === "denied") return "Blocked by the browser. Enable notifications for this site in Chrome/Edge settings.";
   return "Not enabled yet. Click Enable Notifications once on this device.";
 }
@@ -6866,12 +6942,26 @@ function notifyUser(message, options = {}) {
   }
 }
 
+function getHhNotificationAudioContext() {
+  if (typeof window === "undefined") return null;
+  try {
+    const ref = window.__hhNotificationAudioRef;
+    if (ref?.current && ref.current.state !== "closed") return ref.current;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    const ctx = new AudioContextClass();
+    if (ref) ref.current = ctx;
+    return ctx;
+  } catch (_) {
+    return null;
+  }
+}
+
 function unlockHhDing() {
   if (typeof window === "undefined") return;
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getHhNotificationAudioContext();
+    if (!ctx) return;
     ctx.resume?.();
     const oscillator = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -6880,36 +6970,35 @@ function unlockHhDing() {
     gain.connect(ctx.destination);
     oscillator.start();
     oscillator.stop(ctx.currentTime + 0.02);
-    window.setTimeout(() => ctx.close?.(), 80);
   } catch (_) {}
 }
 
 function playHhDing() {
   if (typeof window === "undefined") return;
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getHhNotificationAudioContext();
+    if (!ctx) return;
+    ctx.resume?.();
     const first = ctx.createOscillator();
     const second = ctx.createOscillator();
     const gain = ctx.createGain();
+    const start = ctx.currentTime + 0.01;
 
     first.type = "sine";
     second.type = "sine";
-    first.frequency.setValueAtTime(880, ctx.currentTime);
-    second.frequency.setValueAtTime(1320, ctx.currentTime + 0.08);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.025);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.65);
+    first.frequency.setValueAtTime(880, start);
+    second.frequency.setValueAtTime(1320, start + 0.08);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.25, start + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.75);
 
     first.connect(gain);
     second.connect(gain);
     gain.connect(ctx.destination);
-    first.start(ctx.currentTime);
-    first.stop(ctx.currentTime + 0.28);
-    second.start(ctx.currentTime + 0.10);
-    second.stop(ctx.currentTime + 0.65);
-    window.setTimeout(() => ctx.close?.(), 800);
+    first.start(start);
+    first.stop(start + 0.30);
+    second.start(start + 0.10);
+    second.stop(start + 0.75);
   } catch (error) {
     console.warn("Notification sound failed", error);
   }
