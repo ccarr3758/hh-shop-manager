@@ -6319,12 +6319,13 @@ function normalizeRole(role) {
 
 function getAllowedViewNames(access) {
   const role = normalizeRole(access?.role);
+  const sharedTechViews = ["Dashboard", "Mobile Manager", "Performance", "Hall of Fame", "Notifications"];
   const map = {
-    admin: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"],
-    manager: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Cloud Status"],
-    foreman: ["Performance", "Mobile Manager", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
-    service_writer: ["Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
-    technician: ["Mobile Manager", "Dashboard"],
+    admin: ["Performance", "Mobile Manager", "Notifications", "Hall of Fame", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"],
+    manager: ["Performance", "Mobile Manager", "Notifications", "Hall of Fame", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Cloud Status"],
+    foreman: ["Performance", "Mobile Manager", "Notifications", "Hall of Fame", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
+    service_writer: ["Notifications", "Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
+    technician: sharedTechViews,
   };
   return map[role] || map.technician;
 }
