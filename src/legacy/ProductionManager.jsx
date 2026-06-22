@@ -395,9 +395,11 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                 <button onClick={pwaInstall.dismissIosHint}>Got it</button>
               </div>
             )}
-            <button className="phoneFab" onClick={() => setShowNewJob(true)} aria-label="New Job">
-              <Plus size={26} />
-            </button>
+            {!showNewJob && !editingJob && (
+              <button className="phoneFab" onClick={() => setShowNewJob(true)} aria-label="New Job">
+                <Plus size={26} />
+              </button>
+            )}
             <nav className="phoneBottomNav" aria-label="Mobile navigation">
               {[
                 ["Dashboard", LayoutDashboard, "Home"],
@@ -635,7 +637,9 @@ function MobileStyles() {
         .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
         .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
         .modalBackdrop { padding: 10px !important; align-items: flex-end !important; }
-        .modal { width: 100% !important; max-width: none !important; max-height: 92vh !important; overflow: auto !important; border-radius: 22px 22px 0 0 !important; }
+        .modal { width: 100% !important; max-width: none !important; max-height: 92vh !important; overflow: auto !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(118px + env(safe-area-inset-bottom)) !important; }
+        .modal > .primary.wide, .modalFooter { position: sticky !important; bottom: 0 !important; z-index: 25 !important; margin: 14px -14px calc(-118px - env(safe-area-inset-bottom)) !important; padding: 12px 14px calc(18px + env(safe-area-inset-bottom)) !important; background: linear-gradient(180deg, rgba(248,250,252,.72), #f8fafc 34%) !important; box-shadow: 0 -12px 28px rgba(15,23,42,.12) !important; }
+        .modal > .primary.wide { display: flex !important; align-items: center !important; justify-content: center !important; width: calc(100% + 28px) !important; min-height: 56px !important; border-radius: 0 !important; }
         .table, .performanceTable, .availabilityTable, .schedule { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
         .outlookGrid { grid-template-columns: 1fr !important; }
         .productLineRow { grid-template-columns: 1fr !important; }
@@ -6649,13 +6653,16 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
             const finish = getProjectedFinish(currentJob);
             const overdue = isOverdue(finish, Boolean(currentJob));
             const nextJob = clockedIn ? getNextJob(tech.id, currentJob?.id) : null;
+            const isHelperOnly = Boolean(currentJob?.helper_assignment);
             const status = !clockedIn
               ? attendanceStatus.label
-              : currentJob
-                ? overdue
-                  ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
-                  : ctx.status(currentJob.status_id)?.name
-                : "Available";
+              : isHelperOnly
+                ? "Available"
+                : currentJob
+                  ? overdue
+                    ? `${ctx.status(currentJob.status_id)?.name || "Working"} • Overdue`
+                    : ctx.status(currentJob.status_id)?.name
+                  : "Available";
             const product = !clockedIn ? "Not Available" : currentJob ? currentJob.helper_label || ctx.jobProductsSummary(currentJob) : "Available";
             const nextProduct = nextJob ? ctx.jobProductsSummary(nextJob) : "—";
 
@@ -6664,19 +6671,21 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
                 className={`availabilityRow ${
                   !clockedIn
                     ? "availabilityOffClock"
-                    : overdue
-                      ? "availabilityOverdue"
-                      : currentJob
-                        ? "availabilityBusy"
-                        : "availabilityAvailable"
+                    : isHelperOnly
+                      ? "availabilityAvailable"
+                      : overdue
+                        ? "availabilityOverdue"
+                        : currentJob
+                          ? "availabilityBusy"
+                          : "availabilityAvailable"
                 }`}
                 key={tech.id}
               >
                 <strong>{tech.name}</strong>
                 <span>{product}</span>
                 <span>{status}</span>
-                <span className={overdue ? "negativeTime" : ""}>{clockedIn ? getTimeRemaining(finish, Boolean(currentJob)) : "—"}</span>
-                <span>{clockedIn ? formatAvailableAt(finish, Boolean(currentJob)) : "Not clocked in"}</span>
+                <span className={!isHelperOnly && overdue ? "negativeTime" : ""}>{clockedIn && !isHelperOnly ? getTimeRemaining(finish, Boolean(currentJob)) : "—"}</span>
+                <span>{clockedIn ? (isHelperOnly ? "Now" : formatAvailableAt(finish, Boolean(currentJob))) : "Not clocked in"}</span>
                 <span>{nextProduct}</span>
               </div>
             );
