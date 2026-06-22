@@ -1572,12 +1572,27 @@ function MobileDashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, acc
   const completed = jobs.filter((j) => ctx.isComplete(j.status_id));
   const activeJobs = openJobs.filter((j) => activeStatuses.has(ctx.status(j.status_id)?.name));
   const scheduledJobs = openJobs.filter((j) => ctx.status(j.status_id)?.name === "Scheduled");
-  const capacity = Number(metrics.capacity || 0);
+  const role = normalizeRole(access?.role);
+  const isTechnicianUser = role === "technician" && Boolean(access?.technicianId);
+  const openJobIds = new Set(openJobs.map((job) => job.id));
+  const techActiveHelperBookHours = isTechnicianUser
+    ? (ctx.jobHelpers || []).reduce((sum, helper) => {
+        if (helper.technician_id !== access.technicianId) return sum;
+        if (helper.scheduled_date !== selectedDate || !isActiveHelper(helper)) return sum;
+        if (helper.job_id && !openJobIds.has(helper.job_id)) return sum;
+        return sum + getCappedHelperBookHours(helper, ctx);
+      }, 0)
+    : 0;
+  const techBookedCapacity = isTechnicianUser
+    ? Math.min(100, Math.round(((openJobs.reduce((a, j) => a + getAdjustedBookHours(j), 0) + techActiveHelperBookHours) / 8) * 100))
+    : null;
+  const capacity = isTechnicianUser ? techBookedCapacity : Number(metrics.capacity || 0);
+  const capacityLabel = isTechnicianUser ? "My Capacity" : "Shop Capacity";
+  const capacityCaption = isTechnicianUser ? "My remaining workload" : "Current workload";
   const efficiency = Number(metrics.efficiency || 0);
   const dayLabel = selectedDate === todayIso()
     ? new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
     : selectedDate;
-  const role = normalizeRole(access?.role);
   const isFloorUser = ["technician", "foreman"].includes(role);
   const techName = access?.technicianId ? ctx.tech(access.technicianId)?.name : "";
   const displayName = (techName || access?.fullName || access?.email || "").trim();
@@ -1624,7 +1639,7 @@ function MobileDashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, acc
       )}
 
       <div className="mobileKpiGrid">
-        <div className="mobileKpiCard orange"><span>Shop Capacity</span><strong>{capacity}%</strong><small>Current workload</small></div>
+        <div className="mobileKpiCard orange"><span>{capacityLabel}</span><strong>{capacity}%</strong><small>{capacityCaption}</small></div>
         <div className="mobileKpiCard"><span>Booked Open</span><strong>{openJobs.reduce((a, j) => a + Number(j.book_hours || 0), 0).toFixed(1)}h</strong><small>Remaining work</small></div>
         <div className="mobileKpiCard"><span>Completed</span><strong>{completed.length}</strong><small>Jobs today</small></div>
         <div className="mobileKpiCard"><span>Scheduled</span><strong>{scheduledJobs.length}</strong><small>Waiting to start</small></div>
