@@ -552,7 +552,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         )}
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -722,6 +722,17 @@ function MobileStyles() {
       .productLineRemove { min-height: 42px; border-radius: 12px; }
       .productLinesTotal { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; font-size: 13px; color: #475569; }
       .productLinesTotal strong { color: #0f172a; }
+
+      .dashboardRequestBlock { margin: 16px 0; padding: 18px; border-radius: 24px; background: linear-gradient(135deg, #3b0f24, #1f1230); border: 1px solid rgba(244,63,94,.45); box-shadow: 0 18px 45px rgba(88,28,135,.18); }
+      .dashboardRequestHeader { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+      .dashboardRequestHeader h3 { margin: 0; color: #fff; font-size: 24px; letter-spacing: -.03em; }
+      .dashboardRequestHeader span { display: block; margin-top: 4px; color: #cbd5e1; font-weight: 800; }
+      .dashboardRequestHeader strong { min-width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: #f43f5e; color: #fff; font-size: 24px; }
+      .dashboardRequestList { display: grid; gap: 12px; }
+      .dashboardRequestBlock .notificationCard { background: rgba(255,255,255,.94); border: 1px solid rgba(244,63,94,.22); box-shadow: 0 10px 30px rgba(15,23,42,.14); }
+      .dashboardRequestBlock .notificationCard strong { color: #0f172a; }
+      .dashboardRequestBlock .notificationCard p { color: #334155; }
+      .dashboardRequestBlock .notificationCard span { color: #64748b; }
 
       .availabilityOverdue { background: #fee2e2 !important; border-color: #ef4444 !important; color: #7f1d1d !important; }
       .availabilityOverdue strong, .availabilityOverdue span { color: #7f1d1d !important; }
@@ -1856,7 +1867,41 @@ function MobileDashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, acc
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
+
+function DashboardRoadblockRequests({ ctx, access, reload }) {
+  const pendingRoadblockRequests = (ctx.notifications || [])
+    .filter((notification) => canReceiveNotification(notification, access))
+    .filter(isPendingRoadblockExtensionRequest)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  if (!pendingRoadblockRequests.length) return null;
+
+  return (
+    <div className="dashboardRequestBlock">
+      <div className="dashboardRequestHeader">
+        <div>
+          <p className="eyebrow">Action required</p>
+          <h3>Pending roadblock requests</h3>
+          <span>These requests are now shown on the dashboard until approved or denied.</span>
+        </div>
+        <strong>{pendingRoadblockRequests.length}</strong>
+      </div>
+      <div className="dashboardRequestList">
+        {pendingRoadblockRequests.map((notification) => (
+          <PendingRoadblockExtensionCard
+            key={notification.id}
+            notification={notification}
+            ctx={ctx}
+            access={access}
+            reload={reload}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
 
   return (
@@ -1872,6 +1917,8 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate }) {
           <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
         </div>
       </div>
+
+      <DashboardRoadblockRequests ctx={ctx} access={access} reload={reload} />
 
      <div className="kpis">
   <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Current workload" />
