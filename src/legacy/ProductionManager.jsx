@@ -48,14 +48,35 @@ const navGroups = [
 ];
 
 const LIVE_REFRESH_MS = 3000;
+const ACTIVE_VIEW_STORAGE_KEY = "hhpm_v1_active_view";
 
+function readStoredActiveView() {
+  if (typeof window === "undefined") return "Dashboard";
+  try {
+    return window.localStorage?.getItem(ACTIVE_VIEW_STORAGE_KEY) || "Dashboard";
+  } catch (_) {
+    return "Dashboard";
+  }
+}
+
+function writeStoredActiveView(nextView) {
+  if (typeof window === "undefined" || !nextView) return;
+  try {
+    window.localStorage?.setItem(ACTIVE_VIEW_STORAGE_KEY, nextView);
+  } catch (_) {}
+}
+
+function getDefaultViewForAccess(access) {
+  const allowed = getAllowedViewNames(access);
+  return allowed[0] || "Mobile Manager";
+}
 
 function getNavIcon(name) {
   return nav.find(([navName]) => navName === name)?.[1] || LayoutDashboard;
 }
 
 export default function ProductionManager({ authProfile, onSignOut }) {
-  const [view, setView] = useState("Dashboard");
+  const [view, setView] = useState(readStoredActiveView);
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [state, setState] = useState(emptyState());
@@ -68,6 +89,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const notificationPollRunning = useRef(false);
   const liveRefreshRunning = useRef(false);
   const notificationAudioRef = useRef(null);
+  const pushRegistrationAttempted = useRef(false);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
   );
@@ -78,6 +100,10 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    writeStoredActiveView(view);
+  }, [view]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -378,12 +404,29 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx, selectedDate), [dailyJobs, ctx, selectedDate]);
 
   useEffect(() => {
-    if (!allowedViewNames.includes(view)) setView(allowedViewNames[0] || "Mobile Manager");
-  }, [allowedViewNames, view]);
+    if (!allowedViewNames.includes(view)) {
+      const fallbackView = getDefaultViewForAccess(access);
+      setView(fallbackView);
+      writeStoredActiveView(fallbackView);
+    }
+  }, [allowedViewNames, view, access]);
 
   useEffect(() => {
     requestNotificationPermission();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || pushRegistrationAttempted.current) return;
+    if (!ctx?.company?.id) return;
+    if (window.localStorage?.getItem("hh_notifications_enabled") !== "yes") return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    pushRegistrationAttempted.current = true;
+    registerHhPushSubscription(ctx, access).catch((error) => {
+      pushRegistrationAttempted.current = false;
+      console.warn("Push registration refresh failed", error);
+    });
+  }, [ctx?.company?.id, access?.role, access?.technicianId, access?.email, access?.fullName]);
 
   if (loading) {
     return (
