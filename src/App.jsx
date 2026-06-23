@@ -52,7 +52,10 @@ export default function App() {
 
     if (profileError) {
       setProfile(null);
-      setError("This login works, but no active user profile was found. Add this user to user_profiles in Supabase.");
+      const transientNetworkError = profileError?.message === "Failed to fetch" || profileError?.name === "TypeError";
+      setError(transientNetworkError
+        ? "Connection to Supabase was interrupted. Check the network connection, then refresh."
+        : "This login works, but no active user profile was found. Add this user to user_profiles in Supabase.");
     } else if (data?.active === false) {
       setProfile(null);
       setError("This user profile is inactive.");
@@ -77,7 +80,10 @@ export default function App() {
       const { session: currentSession, error: sessionError } = await getCurrentSession();
       if (!alive) return;
       if (sessionError && !currentSession) {
-        setError(sessionError.message);
+        const transientNetworkError = sessionError?.message === "Failed to fetch" || sessionError?.name === "TypeError";
+        setError(transientNetworkError
+          ? "Connection to Supabase was interrupted. Check the network connection, then refresh."
+          : sessionError.message);
         setLoading(false);
         return;
       }
@@ -87,7 +93,11 @@ export default function App() {
     init();
 
     const { data: listener } = supabase?.auth?.onAuthStateChange?.((_event, newSession) => {
-      loadProfile(newSession);
+      loadProfile(newSession).catch((error) => {
+        console.warn("Auth state profile load failed", error);
+        setError(error?.message || "Connection to Supabase was interrupted. Check the network connection, then refresh.");
+        setLoading(false);
+      });
     }) || { data: null };
 
     return () => {
