@@ -2125,7 +2125,7 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
       <div className="dashboardTopGrid">
         <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
         <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
-          <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
+          <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
         </Panel>
       </div>
 
@@ -7464,7 +7464,7 @@ function AccessGate({ technicians, onSave }) {
   );
 }
 
-function LiveTechnicianAvailability({ jobs, ctx }) {
+function LiveTechnicianAvailability({ jobs, ctx, embedded = false }) {
   const now = new Date();
 
   function getTechCurrentJob(techId) {
@@ -7553,16 +7553,14 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
     );
   }
 
-  return (
-    <Panel title="Live Technician Availability" chip="Current">
-      <div className="availabilityTable">
+  const availabilityContent = (
+      <div className="availabilityTable dashboardAvailabilityTable">
         <div className="availabilityRow availabilityHeader">
-          <span>Technician</span>
-          <span>Current Job</span>
-          <span>Status</span>
-          <span>Time Remaining</span>
-          <span>Available At</span>
-          <span>Next Job</span>
+          <span>Tech</span>
+          <span>Current / status</span>
+          <span>Remaining</span>
+          <span>Available</span>
+          <span>Next</span>
         </div>
 
         {ctx.technicians
@@ -7602,16 +7600,22 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
                 }`}
                 key={tech.id}
               >
-                <strong>{tech.name}</strong>
-                <span>{product}</span>
-                <span>{status}</span>
+                <strong className="availabilityTechName">{tech.name}</strong>
+                <span className="availabilityJobCell"><b>{product}</b><small>{status}</small></span>
                 <span className={!isHelperOnly && overdue ? "negativeTime" : ""}>{clockedIn && !isHelperOnly ? getTimeRemaining(finish, Boolean(currentJob)) : "—"}</span>
-                <span>{clockedIn ? (isHelperOnly ? "Now" : formatAvailableAt(finish, Boolean(currentJob))) : "Not clocked in"}</span>
-                <span>{nextProduct}</span>
+                <span>{clockedIn ? (isHelperOnly ? "Now" : formatAvailableAt(finish, Boolean(currentJob))) : "Off"}</span>
+                <span className="availabilityNextJob">{nextProduct}</span>
               </div>
             );
           })}
       </div>
+  );
+
+  if (embedded) return availabilityContent;
+
+  return (
+    <Panel title="Live Technician Availability" chip="Current">
+      {availabilityContent}
     </Panel>
   );
 }
