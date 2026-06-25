@@ -146,7 +146,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         accessLogResult,
         damagePhotosResult,
         notificationResult,
-        shopMessageResult,
+        userProfileResult,
+        messageThreadResult,
+        messageResult,
       ] = await Promise.all([
         fetchTable("labor_rates", companyId),
         fetchTable("technicians", companyId),
@@ -164,7 +166,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         fetchOptionalAccessLogs(companyId),
         fetchOptionalDamagePhotos(companyId),
         fetchOptionalNotifications(companyId),
-        fetchOptionalShopMessages(companyId),
+        fetchOptionalUserProfiles(companyId),
+        fetchOptionalMessageThreads(companyId),
+        fetchOptionalThreadMessages(companyId),
       ]);
 
       jobs = await rollForwardOverdueJobs(companyId, jobs, statuses);
@@ -185,7 +189,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         accessLogs: accessLogResult || [],
         damagePhotos: damagePhotosResult || [],
         notifications: notificationResult || [],
-        shopMessages: shopMessageResult || [],
+        userProfiles: userProfileResult || [],
+        messageThreads: messageThreadResult || [],
+        threadMessages: messageResult || [],
         shopSettings: shopSettings[0] || null,
         jobs,
       });
@@ -263,7 +269,12 @@ export default function ProductionManager({ authProfile, onSignOut }) {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "shop_messages", filter: `company_id=eq.${state.company.id}` },
+        { event: "*", schema: "public", table: "shop_message_threads", filter: `company_id=eq.${state.company.id}` },
+        loadAll
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "shop_thread_messages", filter: `company_id=eq.${state.company.id}` },
         loadAll
       )
       .on(
@@ -605,6 +616,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                 ["Performance", BarChart3, "Performance"],
                 ["Hall of Fame", Trophy, "Records"],
                 ["Notifications", Bell, "Alerts"],
+                ["Messages", MessageSquare, "Messages"],
               ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
                 <button
                   key={name}
@@ -1912,104 +1924,253 @@ function DashboardRoadblockRequests({ ctx, access, reload }) {
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
-  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+function buildDashboardRequestItems(ctx, access) {
+  return (ctx.notifications || [])
+    .filter((notification) => canReceiveNotification(notification, access))
+    .filter(isPendingRoadblockExtensionRequest)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+}
+
+function getTomorrowIso(selectedDate) {
+  const d = new Date(`${selectedDate || todayIso()}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function getJobsForExactDate(jobs, date) {
+  return (jobs || []).filter((job) => (job.scheduled_date || todayIso()) === date);
+}
+
+function getSimpleDailyMetrics(jobs, ctx, selectedDate) {
+  return calculateMetrics(getJobsForExactDate(jobs, selectedDate), ctx, selectedDate);
+}
+
+function getPulseState({ efficiency, capacity, activeJobs, overdueJobs, requestCount, comebackCount }) {
+  if (overdueJobs > 2 || requestCount > 4 || efficiency < 85 || capacity >= 115) {
+    return { label: "Critical", className: "critical", note: "Immediate attention needed." };
+  }
+  if (overdueJobs > 0 || requestCount > 0 || capacity >= 95 || efficiency < 100 || comebackCount > 0) {
+    return { label: "Watch", className: "watch", note: "Stable, but needs management focus." };
+  }
+  if (activeJobs === 0) {
+    return { label: "Idle", className: "idle", note: "No active production pressure." };
+  }
+  return { label: "Strong", className: "strong", note: "Shop is running ahead of pace." };
+}
+
+function getDashboardTiming(job, ctx) {
+  const finish = getJobProjectedFinish(job, ctx);
+  const finishMinutes = timeStringToMinutes(finish.finishTime);
+  const now = getCurrentMinuteOfDay();
+  const openToday = !finish.dayOffset;
+  const overdue = openToday && finishMinutes < now && !ctx.isComplete(job.status_id);
+  return { finish, finishMinutes, overdue };
+}
+
+function ShopPulseCard({ jobs, allJobs, ctx, metrics, selectedDate, requestCount }) {
+  const activeJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "In Progress" && !ctx.isComplete(j.status_id));
+  const pausedJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "Paused");
+  const qcJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "QC");
+  const overdueJobs = activeJobs.filter((job) => getDashboardTiming(job, ctx).overdue);
+  const comebackCount = (ctx.comebacks || ctx.comebackRework || []).filter((row) => (row.status || "open") !== "resolved").length;
+  const pulse = getPulseState({
+    efficiency: Number(metrics.efficiency || 0),
+    capacity: Number(metrics.capacity || 0),
+    activeJobs: activeJobs.length,
+    overdueJobs: overdueJobs.length,
+    requestCount,
+    comebackCount,
+  });
+  const tomorrowDate = getTomorrowIso(selectedDate);
+  const tomorrowMetrics = getSimpleDailyMetrics(allJobs, ctx, tomorrowDate);
+  const focusItems = [];
+  if (requestCount) focusItems.push(`${requestCount} request${requestCount === 1 ? "" : "s"} waiting`);
+  if (overdueJobs.length) focusItems.push(`${overdueJobs.length} job${overdueJobs.length === 1 ? "" : "s"} over book time`);
+  if (pausedJobs.length) focusItems.push(`${pausedJobs.length} paused job${pausedJobs.length === 1 ? "" : "s"}`);
+  if (qcJobs.length) focusItems.push(`${qcJobs.length} job${qcJobs.length === 1 ? "" : "s"} in QC`);
+  if (tomorrowMetrics.capacity >= 95) focusItems.push(`Tomorrow ${tomorrowMetrics.capacity}% booked`);
+  if (!focusItems.length) focusItems.push("No immediate manager action detected");
 
   return (
-    <section className="page">
-      <div className="hero">
-        <div>
-          <p className="eyebrow">Live production</p>
-          <h3>{selectedDate === todayIso() ? "Today’s shop performance" : `Shop performance for ${selectedDate}`}</h3>
-          <p>Every card reads from Supabase. Updates from another device sync back into this dashboard.</p>
-        </div>
-        <div className="heroMetric">
-          <span>Shop efficiency</span>
+    <section className={`shopPulseCard ${pulse.className}`}>
+      <div className="shopPulseMain">
+        <p className="eyebrow">Shop Pulse</p>
+        <div className="shopPulseTitleRow">
+          <h3>{pulse.label}</h3>
           <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
         </div>
+        <p>{pulse.note}</p>
+      </div>
+      <div className="shopPulseStats">
+        <div><span>Capacity</span><strong>{metrics.capacity}%</strong></div>
+        <div><span>Active</span><strong>{activeJobs.length}</strong></div>
+        <div><span>Requests</span><strong>{requestCount}</strong></div>
+        <div><span>Overdue</span><strong>{overdueJobs.length}</strong></div>
+      </div>
+      <div className="managerFocusStrip">
+        <span>Manager Focus</span>
+        <div>{focusItems.slice(0, 3).map((item) => <b key={item}>{item}</b>)}</div>
+      </div>
+    </section>
+  );
+}
+
+function CompactKpiStrip({ jobs, ctx, metrics }) {
+  const inProgress = jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length;
+  const paused = jobs.filter(j => ctx.status(j.status_id)?.name === "Paused").length;
+  const qc = jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length;
+  const items = [
+    { label: "Capacity", value: `${metrics.capacity}%`, caption: "Workload" },
+    { label: "Completed", value: metrics.completedJobs, caption: "Jobs" },
+    { label: "In Progress", value: inProgress, caption: "Live jobs" },
+    { label: "Book Hrs", value: metrics.bookComplete.toFixed(1), caption: "Complete" },
+    { label: "Actual Hrs", value: metrics.actualUsed.toFixed(1), caption: "Used" },
+    { label: "Helpers", value: `${metrics.helperBookComplete.toFixed(1)} / ${metrics.helperActualUsed.toFixed(1)}`, caption: "Book / actual" },
+    { label: "Avg Install", value: `${metrics.avgActualTime.toFixed(2)}h`, caption: "Completed" },
+    { label: "Efficiency", value: `${Math.round(metrics.efficiency)}%`, caption: "Overall" },
+  ];
+  if (paused > 0) items.splice(3, 0, { label: "Paused", value: paused, caption: "Needs attention", alert: true });
+  if (qc > 0) items.splice(4, 0, { label: "QC", value: qc, caption: "Awaiting inspection", alert: true });
+
+  return (
+    <div className="compactKpiStrip">
+      {items.map((item) => (
+        <article key={item.label} className={`compactKpi ${item.alert ? "alert" : ""}`}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+          <small>{item.caption}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DashboardRequestsPanel({ ctx, access, reload, requests }) {
+  if (!requests.length) {
+    return (
+      <Panel title="Outstanding Requests" chip="Clear">
+        <div className="emptyRequestState">
+          <strong>No pending requests</strong>
+          <p className="muted">Roadblock extensions and approval requests will stay here until handled.</p>
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel title="Outstanding Requests" chip={`${requests.length} pending`}>
+      <div className="dashboardRequestList compact">
+        {requests.slice(0, 4).map((notification) => (
+          <PendingRoadblockExtensionCard
+            key={notification.id}
+            notification={notification}
+            ctx={ctx}
+            access={access}
+            reload={reload}
+          />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function WeeklyTrendPanel({ allJobs, ctx, selectedDate }) {
+  const base = new Date(`${selectedDate || todayIso()}T00:00:00`);
+  const days = Array.from({ length: 5 }, (_, index) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() - (4 - index));
+    const date = d.toISOString().slice(0, 10);
+    const dayJobs = getJobsForExactDate(allJobs, date);
+    const dayMetrics = calculateMetrics(dayJobs, ctx, date);
+    return {
+      date,
+      label: d.toLocaleDateString([], { weekday: "short" }),
+      efficiency: Math.round(dayMetrics.efficiency || 0),
+      book: Number(dayMetrics.bookComplete || 0),
+      completed: Number(dayMetrics.completedJobs || 0),
+    };
+  });
+  const maxBook = Math.max(1, ...days.map((day) => day.book));
+
+  return (
+    <Panel title="Weekly Trend" chip="Book hours">
+      <div className="weeklyTrendRows">
+        {days.map((day) => (
+          <div className="weeklyTrendRow" key={day.date}>
+            <span>{day.label}</span>
+            <div className="weeklyTrendTrack"><b style={{ width: `${Math.max(4, (day.book / maxBook) * 100)}%` }} /></div>
+            <strong>{day.book.toFixed(1)}h</strong>
+            <small>{day.completed} jobs</small>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function CapacityForecastPanel({ allJobs, ctx, selectedDate }) {
+  const days = [0, 1, 2].map((offset) => {
+    const d = new Date(`${selectedDate || todayIso()}T00:00:00`);
+    d.setDate(d.getDate() + offset);
+    const date = d.toISOString().slice(0, 10);
+    const metrics = getSimpleDailyMetrics(allJobs, ctx, date);
+    return {
+      date,
+      label: offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : d.toLocaleDateString([], { weekday: "long" }),
+      capacity: metrics.capacity,
+      openBook: getJobsForExactDate(allJobs, date).filter((j) => !ctx.isComplete(j.status_id)).reduce((sum, job) => sum + getAdjustedBookHours(job), 0),
+    };
+  });
+
+  return (
+    <Panel title="Capacity Forecast" chip="Next 3 days">
+      <div className="capacityForecastList">
+        {days.map((day) => (
+          <div className={`capacityForecastRow ${day.capacity >= 100 ? "over" : day.capacity >= 85 ? "watch" : ""}`} key={day.date}>
+            <div><strong>{day.label}</strong><span>{day.openBook.toFixed(1)} open book hrs</span></div>
+            <div className="capacityMiniTrack"><b style={{ width: `${Math.min(100, Math.max(2, day.capacity))}%` }} /></div>
+            <em>{day.capacity}%</em>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const requests = buildDashboardRequestItems(ctx, access);
+
+  return (
+    <section className="page dashboardPolished">
+      <ShopPulseCard jobs={jobs} allJobs={allJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} requestCount={requests.length} />
+
+      <div className="dashboardTopGrid">
+        <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
+        <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
+          <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+        </Panel>
       </div>
 
-      <DashboardRoadblockRequests ctx={ctx} access={access} reload={reload} />
+      <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
 
-     <div className="kpis">
-  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Current workload" />
-
-  <Kpi
-    title="Jobs Completed"
-    value={metrics.completedJobs}
-    caption="Completed jobs"
-  />
-
-  <Kpi
-    title="Jobs In Progress"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length}
-    caption="Currently working"
-  />
-
-  <Kpi
-    title="Paused Jobs"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Paused").length}
-    caption="Needs attention"
-  />
-
-  <Kpi
-    title="QC Queue"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length}
-    caption="Awaiting inspection"
-  />
-
-  <Kpi
-    title="Book Hours Complete"
-    value={metrics.bookComplete.toFixed(1)}
-    caption="Completed"
-  />
-
-  <Kpi
-    title="Actual Hours Used"
-    value={metrics.actualUsed.toFixed(1)}
-    caption="Completed"
-  />
-
-  <Kpi
-    title="Helper Book Hours"
-    value={metrics.helperBookComplete.toFixed(1)}
-    caption="Added to performance"
-  />
-
-  <Kpi
-    title="Helper Actual Hours"
-    value={metrics.helperActualUsed.toFixed(1)}
-    caption="Hours helped"
-  />
-
-  <Kpi
-    title="Average Install Time"
-    value={`${metrics.avgActualTime.toFixed(2)} hrs`}
-    caption="Completed jobs"
-  />
-
-  <Kpi
-    title="Shop Efficiency"
-    value={`${Math.round(metrics.efficiency)}%`}
-    caption="Overall"
-  />
-</div>
-
-      <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
-
-      <div className="grid two">
-        <Panel title="Live shop board" chip="Open jobs">
-          <div className="jobList">
+      <div className="grid two dashboardLowerGrid">
+        <Panel title="Jobs In Progress" chip="Open jobs">
+          <div className="jobList compactJobList">
             {openJobs.length ? (
-              openJobs.map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
+              openJobs.slice(0, 8).map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
             ) : (
               <p className="muted">No open jobs.</p>
             )}
           </div>
         </Panel>
-        <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
-          <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
-        </Panel>
+        <div className="dashboardStack">
+          <WeeklyTrendPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
+          <CapacityForecastPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
+          <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
+            <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
+          </Panel>
+        </div>
       </div>
     </section>
   );
@@ -4304,50 +4465,146 @@ function AccessLogPanel({ ctx }) {
 }
 
 
+function EmployeeManagement({ ctx, access, reload }) {
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [draft, setDraft] = useState(null);
+  const [passwordDraft, setPasswordDraft] = useState(null);
+  const canManageEmployees = normalizeRole(access?.role) === "admin";
+
+  useEffect(() => {
+    if (canManageEmployees) loadEmployees();
+  }, [canManageEmployees, ctx.company?.id]);
+
+  async function invokeAdminApi(action, payload = {}) {
+    const { data, error } = await supabase.functions.invoke("admin-api", {
+      body: { action, company_id: ctx.company.id, ...payload },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function loadEmployees() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await invokeAdminApi("list");
+      setEmployees(data?.employees || []);
+    } catch (err) {
+      setError(err?.message || "Employee management is not configured yet.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startNewEmployee() {
+    setDraft({ full_name: "", email: "", role: "technician", technician_id: "", active: true, password: "" });
+  }
+
+  async function saveEmployee() {
+    if (!draft?.full_name?.trim()) return alert("Employee name is required.");
+    if (!draft?.id && !draft?.email?.trim()) return alert("Login email/username is required.");
+    if (!draft?.id && !draft.password) return alert("Temporary password is required for a new employee.");
+    setSaving(true);
+    try {
+      await invokeAdminApi(draft.id ? "update_employee" : "create_employee", {
+        user_id: draft.id,
+        full_name: draft.full_name.trim(),
+        email: draft.email?.trim(),
+        role: draft.role,
+        technician_id: draft.technician_id || null,
+        active: draft.active !== false,
+        password: draft.password || undefined,
+      });
+      setDraft(null);
+      await loadEmployees();
+      await reload?.();
+    } catch (err) {
+      alert(err?.message || "Unable to save employee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePassword() {
+    if (!passwordDraft?.password || passwordDraft.password.length < 6) return alert("Use at least 6 characters.");
+    setSaving(true);
+    try {
+      await invokeAdminApi("set_password", { user_id: passwordDraft.id, password: passwordDraft.password });
+      setPasswordDraft(null);
+      await loadEmployees();
+    } catch (err) {
+      alert(err?.message || "Unable to change password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(employee) {
+    setSaving(true);
+    try {
+      await invokeAdminApi(employee.active ? "deactivate_employee" : "activate_employee", { user_id: employee.id });
+      await loadEmployees();
+      await reload?.();
+    } catch (err) {
+      alert(err?.message || "Unable to update employee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!canManageEmployees) return null;
+  return (
+    <Panel title="Employee Management" chip="Passwords">
+      <div className="employeeManageHead">
+        <div><strong>Internal employee logins</strong><span>Manage fake email accounts, roles, active status, and password changes.</span></div>
+        <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
+      </div>
+      {error && <div className="employeeSetupWarning"><strong>Setup needed</strong><span>{error}</span><small>Deploy the included Supabase Edge Function named <b>admin-api</b> and run the included SQL.</small></div>}
+      {loading ? <p className="muted">Loading employees...</p> : (
+        <div className="employeeTable">
+          <div className="employeeRow employeeHeader"><span>Employee</span><span>Login</span><span>Role</span><span>Technician</span><span>Status</span><span>Actions</span></div>
+          {employees.map((employee) => {
+            const linkedTech = ctx.technicians.find((tech) => tech.id === employee.technician_id);
+            return <div className="employeeRow" key={employee.id}>
+              <span><b>{employee.full_name || "Unnamed"}</b></span><span>{employee.email || "—"}</span><span className="rolePill">{formatRoleLabel(employee.role)}</span><span>{linkedTech?.name || "—"}</span><span className={employee.active ? "good" : "bad"}>{employee.active ? "Active" : "Inactive"}</span>
+              <span className="employeeActions"><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => toggleActive(employee)}>{employee.active ? "Deactivate" : "Activate"}</button></span>
+            </div>;
+          })}
+          {!employees.length && !error && <p className="muted">No employees returned yet.</p>}
+        </div>
+      )}
+      {draft && <div className="inlineEditor employeeEditor">
+        <label>Full Name<input value={draft.full_name || ""} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></label>
+        <label>Login Email / Username<input value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} disabled={!!draft.id} /></label>
+        <label>Role<select value={draft.role || "technician"} onChange={(e) => setDraft({ ...draft, role: e.target.value })}><option value="admin">Admin</option><option value="manager">Manager</option><option value="foreman">Foreman</option><option value="service_writer">Service Writer</option><option value="technician">Technician</option></select></label>
+        <label>Linked Technician<select value={draft.technician_id || ""} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}><option value="">No technician link</option>{ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}</select></label>
+        {!draft.id && <label>Temporary Password<input type="password" value={draft.password || ""} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>}
+        <label className="check"><input type="checkbox" checked={draft.active !== false} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
+        <div className="rowActions"><button className="primary" onClick={saveEmployee} disabled={saving}>Save Employee</button><button onClick={() => setDraft(null)}>Cancel</button></div>
+      </div>}
+      {passwordDraft && <div className="inlineEditor employeeEditor passwordEditor"><p><b>Change password for {passwordDraft.full_name || passwordDraft.email}</b></p><label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label><div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div></div>}
+    </Panel>
+  );
+}
+
+function formatRoleLabel(role) {
+  return String(role || "technician").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function EmployeeActivityPanel({ ctx }) {
   const rows = buildEmployeeActivityRows(ctx);
-  const counts = rows.reduce(
-    (acc, row) => {
-      acc.total += 1;
-      if (row.statusKey === "active") acc.active += 1;
-      if (row.statusKey === "idle") acc.idle += 1;
-      if (row.statusKey === "inactive") acc.inactive += 1;
-      if (row.statusKey === "never") acc.never += 1;
-      return acc;
-    },
-    { total: 0, active: 0, idle: 0, inactive: 0, never: 0 }
-  );
-
+  const activeToday = rows.filter((r) => r.minutesAgo !== null && r.minutesAgo <= 24 * 60).length;
+  const stale = rows.filter((r) => r.statusKey === "inactive" || r.statusKey === "never").length;
   return (
-    <Panel title="Employee Activity" chip={`${counts.active} active now`}>
-      <div className="activitySummary">
-        <Kpi title="Employees" value={counts.total} caption="Active profiles / techs" />
-        <Kpi title="Active Today" value={rows.filter((r) => r.minutesAgo !== null && r.minutesAgo <= 24 * 60).length} caption="Used manager today" />
-        <Kpi title="Needs Follow-up" value={counts.inactive + counts.never} caption="> 24 hr or never" />
-      </div>
+    <Panel title="Employee Activity" chip={`${activeToday} active today`}>
+      <div className="activitySummary"><Kpi title="Employees" value={rows.length} caption="User profiles / techs" /><Kpi title="Active Today" value={activeToday} caption="Recent login/action" /><Kpi title="Needs Follow-up" value={stale} caption=">24 hr or never" /></div>
       <div className="activityTable">
-        <div className="activityRow activityHeader">
-          <span>Employee</span>
-          <span>Role</span>
-          <span>Status</span>
-          <span>Last Activity</span>
-          <span>Source</span>
-        </div>
-        {rows.map((row) => (
-          <div className="activityRow" key={row.key}>
-            <div>
-              <b>{row.name}</b>
-              {row.email && <small>{row.email}</small>}
-            </div>
-            <span>{humanRole(row.role)}</span>
-            <span className={`statusMini ${row.statusKey}`}>{row.statusLabel}</span>
-            <div>
-              <b>{row.lastActivity ? relativeTime(row.lastActivity) : "Never"}</b>
-              <small>{row.lastActivity ? formatDateTime(row.lastActivity) : "No recorded login/action"}</small>
-            </div>
-            <span>{row.source}</span>
-          </div>
-        ))}
+        <div className="activityRow activityHeader"><span>Employee</span><span>Role</span><span>Status</span><span>Last Activity</span><span>Source</span></div>
+        {rows.map((row) => <div className="activityRow" key={row.key}><div><b>{row.name}</b>{row.email && <small>{row.email}</small>}</div><span>{formatRoleLabel(row.role)}</span><span className={`statusMini ${row.statusKey}`}>{row.statusLabel}</span><div><b>{row.lastActivity ? relativeTime(row.lastActivity) : "Never"}</b><small>{row.lastActivity ? formatDateTime(row.lastActivity) : "No recorded login/action"}</small></div><span>{row.source}</span></div>)}
         {!rows.length && <p className="muted">No employee activity yet.</p>}
       </div>
     </Panel>
@@ -4355,213 +4612,82 @@ function EmployeeActivityPanel({ ctx }) {
 }
 
 function MessagesAdminPanel({ ctx, access, reload }) {
-  const openMessages = (ctx.shopMessages || []).filter((message) => message.status !== "resolved");
-  return (
-    <Panel title="Message Inbox" chip={`${openMessages.length} open`}>
-      <MessagesList ctx={ctx} access={access} reload={reload} compact />
-    </Panel>
-  );
+  const unreadCount = getVisibleThreads(ctx, access).filter((t) => getThreadMessages(ctx, t.id).some((m) => m.sender_user_id !== access?.userId && !m.read_at)).length;
+  return <Panel title="Message Inbox" chip={`${unreadCount} unread`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact /></Panel>;
 }
 
 function MessagesCenter({ ctx, access, reload }) {
-  return (
-    <section className="page">
-      <div className="adminHero">
-        <div>
-          <p className="eyebrow">Shop Communication</p>
-          <h3>Messages</h3>
-          <p>Techs can send questions, concerns, or comments to management and service writers without leaving the workflow.</p>
-        </div>
-      </div>
-      <div className="messagesLayout">
-        <MessageComposer ctx={ctx} access={access} reload={reload} />
-        <Panel title="Message Thread" chip={`${(ctx.shopMessages || []).length}`}>
-          <MessagesList ctx={ctx} access={access} reload={reload} />
-        </Panel>
-      </div>
-    </section>
-  );
-}
+  const visibleThreads = getVisibleThreads(ctx, access);
+  const [selectedThreadId, setSelectedThreadId] = useState(visibleThreads[0]?.id || "");
+  const selectedThread = visibleThreads.find((t) => t.id === selectedThreadId) || visibleThreads[0] || null;
+  const [recipientId, setRecipientId] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const recipients = getMessageRecipients(ctx, access);
 
-function MessageComposer({ ctx, access, reload }) {
-  const [draft, setDraft] = useState({ recipient_group: "management", category: "question", subject: "", body: "" });
-  const isManagement = isManagementRole(access?.role);
+  useEffect(() => {
+    if (!selectedThreadId && visibleThreads[0]?.id) setSelectedThreadId(visibleThreads[0].id);
+    if (selectedThreadId && !visibleThreads.some((t) => t.id === selectedThreadId)) setSelectedThreadId(visibleThreads[0]?.id || "");
+  }, [visibleThreads.length, selectedThreadId]);
 
-  async function sendMessage() {
-    if (!draft.subject.trim()) return alert("Add a short subject.");
-    if (!draft.body.trim()) return alert("Add the message body.");
-
-    const payload = {
-      company_id: ctx.company.id,
-      sender_user_id: access?.userId || null,
-      sender_name: access?.fullName || access?.email || humanRole(access?.role),
-      sender_role: access?.role || "unknown",
-      sender_technician_id: access?.technicianId || null,
-      recipient_group: draft.recipient_group,
-      category: draft.category,
-      subject: draft.subject.trim(),
-      body: draft.body.trim(),
-      status: "open",
-      read_by: [getNotificationReadKey(access)],
-    };
-
-    const { data, error } = await supabase.from("shop_messages").insert(payload).select().single();
-    if (error) return alert(error.message);
-
-    await logAuditEvent(ctx, access, {
-      action: "Shop message sent",
-      entityType: "shop_message",
-      entityId: data?.id,
-      summary: `${payload.sender_name} sent ${payload.category}: ${payload.subject}`,
-      metadata: { recipient_group: payload.recipient_group },
-    });
-
-    await createAppNotification(ctx, access, {
-      type: "shop_message",
-      title: "New Shop Message",
-      body: `${payload.sender_name}: ${payload.subject}`,
-      audienceRoles: payload.recipient_group === "service_writers" ? ["service_writer", "manager", "admin"] : ["manager", "admin", "foreman", "service_writer"],
-      metadata: { shop_message_id: data?.id, category: payload.category },
-    });
-
-    setDraft({ recipient_group: "management", category: "question", subject: "", body: "" });
+  async function startThread() {
+    if (!recipientId) return alert("Choose a user to message.");
+    if (!newBody.trim()) return alert("Type a message first.");
+    const existing = findDirectThread(ctx, access.userId, recipientId);
+    const thread = existing || await createDirectThread(ctx, access, recipientId, newBody.trim());
+    if (existing) await sendThreadMessage(ctx, access, existing.id, newBody.trim());
+    setSelectedThreadId(thread.id);
+    setNewBody("");
+    setRecipientId("");
     await reload?.();
   }
 
-  return (
-    <Panel title={isManagement ? "Send Shop Message" : "Ask Management"} chip="Question / Concern / Comment">
-      <div className="messageComposer">
-        <label>
-          Send To
-          <select value={draft.recipient_group} onChange={(e) => setDraft({ ...draft, recipient_group: e.target.value })}>
-            <option value="management">Management</option>
-            <option value="service_writers">Service Writers</option>
-            <option value="both">Management + Service Writers</option>
-          </select>
-        </label>
-        <label>
-          Type
-          <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
-            <option value="question">Question</option>
-            <option value="concern">Concern</option>
-            <option value="comment">Comment</option>
-            <option value="parts">Parts / Product Issue</option>
-            <option value="customer">Customer / Service Writer Issue</option>
-          </select>
-        </label>
-        <label className="fullWidth">
-          Subject
-          <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} placeholder="Example: Need clarification on Tacoma lights" />
-        </label>
-        <label className="fullWidth">
-          Message
-          <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Type the question, concern, or comment here..." />
-        </label>
-        <button className="primary wide" onClick={sendMessage}>
-          <MessageSquare size={16} /> Send Message
-        </button>
-      </div>
-    </Panel>
-  );
-}
-
-function MessagesList({ ctx, access, reload, compact = false }) {
-  const isManagement = isManagementRole(access?.role);
-  const rows = [...(ctx.shopMessages || [])]
-    .filter((message) => isManagement || message.sender_user_id === access?.userId || message.sender_technician_id === access?.technicianId)
-    .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
-    .slice(0, compact ? 6 : 100);
-
-  return (
-    <div className="messageList">
-      {rows.map((message) => (
-        <MessageCard key={message.id} message={message} ctx={ctx} access={access} reload={reload} compact={compact} />
-      ))}
-      {!rows.length && <p className="muted">No messages yet.</p>}
+  return <section className="page messagesPage"><div className="adminHero"><div><p className="eyebrow">Direct Messages</p><h3>Messages</h3><p>Send a message to a specific user. It stays in a shared thread on mobile and desktop.</p></div></div>
+    <div className="messagesLayout directMessagesLayout">
+      <Panel title="New Message" chip="Direct"><div className="messageComposer"><label>Send To<select value={recipientId} onChange={(e) => setRecipientId(e.target.value)}><option value="">Choose user...</option>{recipients.map((r) => <option key={r.id} value={r.id}>{r.full_name || r.email || r.id} — {formatRoleLabel(r.role)}</option>)}</select></label><label className="fullWidth">Message<textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="Type your message..." /></label><button className="primary wide" onClick={startThread}><MessageSquare size={16} /> Send</button></div></Panel>
+      <Panel title="Threads" chip={`${visibleThreads.length}`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} selectedThreadId={selectedThread?.id} onSelect={setSelectedThreadId} /></Panel>
+      <Panel title="Message Thread" chip={selectedThread ? getThreadPartnerName(ctx, selectedThread, access) : "Select"}>{selectedThread ? <DirectMessageThread thread={selectedThread} ctx={ctx} access={access} reload={reload} /> : <p className="muted">No message thread selected.</p>}</Panel>
     </div>
-  );
+  </section>;
 }
 
-function MessageCard({ message, ctx, access, reload, compact }) {
-  const [reply, setReply] = useState("");
-  const isManagement = isManagementRole(access?.role);
-
-  async function saveReply(resolve = false) {
-    if (!reply.trim() && !resolve) return alert("Type a reply first.");
-    const updates = {
-      manager_reply: reply.trim() || message.manager_reply || "Resolved without reply.",
-      manager_reply_by: access?.fullName || access?.email || humanRole(access?.role),
-      replied_at: new Date().toISOString(),
-      status: resolve ? "resolved" : "replied",
-      updated_at: new Date().toISOString(),
-      resolved_at: resolve ? new Date().toISOString() : message.resolved_at || null,
-      resolved_by: resolve ? (access?.fullName || access?.email || humanRole(access?.role)) : message.resolved_by || null,
-    };
-    const { error } = await supabase.from("shop_messages").update(updates).eq("id", message.id);
-    if (error) return alert(error.message);
-
-    await logAuditEvent(ctx, access, {
-      action: resolve ? "Shop message resolved" : "Shop message replied",
-      entityType: "shop_message",
-      entityId: message.id,
-      summary: `${message.subject || "Message"} ${resolve ? "resolved" : "replied to"}`,
-      metadata: { sender_name: message.sender_name, category: message.category },
-    });
-
-    if (message.sender_technician_id || message.sender_user_id) {
-      await createAppNotification(ctx, access, {
-        type: "shop_message_reply",
-        title: resolve ? "Message Resolved" : "Message Reply",
-        body: `${updates.manager_reply_by}: ${updates.manager_reply}`,
-        technicianId: message.sender_technician_id || null,
-        audienceRoles: [message.sender_role || "technician"],
-        metadata: { shop_message_id: message.id },
-      });
-    }
-
-    setReply("");
-    await reload?.();
-  }
-
-  async function markResolved() {
-    await saveReply(true);
-  }
-
-  return (
-    <div className={`messageCard ${message.status === "resolved" ? "resolved" : ""}`}>
-      <div className="messageTop">
-        <div>
-          <div className="messageMeta">
-            <span className={`statusMini ${message.status === "resolved" ? "done" : "open"}`}>{message.status || "open"}</span>
-            <span>{humanRole(message.sender_role)}</span>
-            <span>{formatDateTime(message.created_at)}</span>
-          </div>
-          <h4>{message.subject || "No subject"}</h4>
-          <p>{message.body}</p>
-          <small>From {message.sender_name || "Unknown"} • {String(message.category || "message").replace("_", " ")} • To {formatRecipientGroup(message.recipient_group)}</small>
-        </div>
-      </div>
-
-      {message.manager_reply && (
-        <div className="messageReply">
-          <b>Reply from {message.manager_reply_by || "Management"}</b>
-          <p>{message.manager_reply}</p>
-          <small>{formatDateTime(message.replied_at)}</small>
-        </div>
-      )}
-
-      {isManagement && !compact && message.status !== "resolved" && (
-        <div className="messageReplyBox">
-          <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Reply to this message..." />
-          <div className="buttonRow">
-            <button className="primary" onClick={() => saveReply(false)}>Send Reply</button>
-            <button onClick={markResolved}>Mark Resolved</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function DirectMessageThreadList({ ctx, access, selectedThreadId, onSelect, compact = false }) {
+  const threads = getVisibleThreads(ctx, access).slice(0, compact ? 8 : 100);
+  return <div className="messageList threadList">{threads.map((thread) => { const last = getThreadMessages(ctx, thread.id).slice(-1)[0]; const unread = getThreadMessages(ctx, thread.id).some((m) => m.sender_user_id !== access?.userId && !m.read_at); return <button key={thread.id} className={`threadListItem ${selectedThreadId === thread.id ? "active" : ""} ${unread ? "unread" : ""}`} onClick={() => onSelect?.(thread.id)}><div><b>{getThreadPartnerName(ctx, thread, access)}</b><small>{last?.body || thread.last_message_preview || "No messages yet"}</small></div><span>{relativeTime(thread.last_message_at || thread.created_at)}</span></button>; })}{!threads.length && <p className="muted">No messages yet.</p>}</div>;
 }
+
+function DirectMessageThread({ thread, ctx, access, reload }) {
+  const [body, setBody] = useState("");
+  const messages = getThreadMessages(ctx, thread.id);
+  async function send() { if (!body.trim()) return; await sendThreadMessage(ctx, access, thread.id, body.trim()); setBody(""); await reload?.(); }
+  return <div className="directThread"><div className="threadMessages">{messages.map((m) => <div key={m.id} className={`threadBubble ${m.sender_user_id === access?.userId ? "mine" : "theirs"}`}><p>{m.body}</p><small>{getProfileName(ctx, m.sender_user_id)} • {formatDateTime(m.created_at)}</small></div>)}{!messages.length && <p className="muted">No messages in this thread.</p>}</div><div className="threadComposer"><textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Type a reply..." onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send(); }} /><button className="primary" onClick={send}>Send</button></div></div>;
+}
+
+async function createDirectThread(ctx, access, recipientId, preview) {
+  const now = new Date().toISOString();
+  const payload = { company_id: ctx.company.id, participant_a_user_id: access.userId, participant_b_user_id: recipientId, created_by_user_id: access.userId, last_message_at: now, last_message_preview: preview.slice(0, 160), created_at: now, updated_at: now };
+  const { data, error } = await supabase.from("shop_message_threads").insert(payload).select().single();
+  if (error) throw error;
+  await sendThreadMessage(ctx, access, data.id, preview, true);
+  return data;
+}
+
+async function sendThreadMessage(ctx, access, threadId, body, skipThreadUpdate = false) {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("shop_thread_messages").insert({ company_id: ctx.company.id, thread_id: threadId, sender_user_id: access.userId, body, created_at: now });
+  if (error) throw error;
+  if (!skipThreadUpdate) await supabase.from("shop_message_threads").update({ last_message_at: now, last_message_preview: body.slice(0, 160), updated_at: now }).eq("id", threadId);
+}
+
+function getVisibleThreads(ctx, access) {
+  const uid = access?.userId;
+  if (!uid) return [];
+  return [...(ctx.messageThreads || [])].filter((t) => t.participant_a_user_id === uid || t.participant_b_user_id === uid).sort((a, b) => String(b.last_message_at || b.created_at || "").localeCompare(String(a.last_message_at || a.created_at || "")));
+}
+function getThreadMessages(ctx, threadId) { return (ctx.threadMessages || []).filter((m) => m.thread_id === threadId).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || ""))); }
+function findDirectThread(ctx, userA, userB) { return (ctx.messageThreads || []).find((t) => (t.participant_a_user_id === userA && t.participant_b_user_id === userB) || (t.participant_a_user_id === userB && t.participant_b_user_id === userA)); }
+function getMessageRecipients(ctx, access) { return (ctx.userProfiles || []).filter((u) => u.active !== false && u.id && u.id !== access?.userId); }
+function getProfileName(ctx, userId) { const p = (ctx.userProfiles || []).find((u) => u.id === userId); return p?.full_name || p?.email || "User"; }
+function getThreadPartnerName(ctx, thread, access) { const otherId = thread.participant_a_user_id === access?.userId ? thread.participant_b_user_id : thread.participant_a_user_id; return getProfileName(ctx, otherId); }
 
 function Admin({ ctx, reload, access }) {
   return (
@@ -4572,6 +4698,7 @@ function Admin({ ctx, reload, access }) {
         <p>Technicians, categories, statuses, delay reasons, labor rates, and shop hours are stored in Supabase.</p>
       </div>
 
+      <EmployeeManagement ctx={ctx} access={access} reload={reload} />
       <EmployeeActivityPanel ctx={ctx} />
       <MessagesAdminPanel ctx={ctx} access={access} reload={reload} />
 
@@ -6150,19 +6277,46 @@ async function fetchOptionalAccessLogs(companyId) {
 }
 
 
-async function fetchOptionalShopMessages(companyId) {
+async function fetchOptionalUserProfiles(companyId) {
   const { data, error } = await supabase
-    .from("shop_messages")
-    .select("*")
+    .from("user_profiles")
+    .select("id, company_id, technician_id, full_name, role, active, created_at, updated_at")
     .eq("company_id", companyId)
-    .order("updated_at", { ascending: false })
-    .limit(250);
+    .order("full_name", { ascending: true });
 
   if (error) {
-    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("shop_messages")) return [];
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("user_profiles")) return [];
+    console.warn("User profile directory unavailable", error.message);
+    return [];
+  }
+  return data || [];
+}
+
+async function fetchOptionalMessageThreads(companyId) {
+  const { data, error } = await supabase
+    .from("shop_message_threads")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("last_message_at", { ascending: false })
+    .limit(250);
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("shop_message_threads")) return [];
     throw error;
   }
+  return data || [];
+}
 
+async function fetchOptionalThreadMessages(companyId) {
+  const { data, error } = await supabase
+    .from("shop_thread_messages")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: true })
+    .limit(1000);
+  if (error) {
+    if (error.code === "42P01" || String(error.message || "").toLowerCase().includes("shop_thread_messages")) return [];
+    throw error;
+  }
   return data || [];
 }
 
@@ -6587,7 +6741,9 @@ function emptyState() {
     accessLogs: [],
     damagePhotos: [],
     notifications: [],
-    shopMessages: [],
+    userProfiles: [],
+    messageThreads: [],
+    threadMessages: [],
     shopSettings: null,
     jobs: [],
   };
@@ -6746,128 +6902,6 @@ function hexToSoft(hex = "#64748b") {
   return `${hex}1a`;
 }
 
-
-
-function isManagementRole(role) {
-  return ["admin", "manager", "foreman", "service_writer"].includes(normalizeRole(role));
-}
-
-function humanRole(role) {
-  return String(normalizeRole(role) || "unknown").replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function relativeTime(value) {
-  if (!value) return "Never";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  const minutes = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
-  const months = Math.floor(days / 30);
-  return `${months} mo ago`;
-}
-
-function activityStatusFor(value) {
-  if (!value) return { statusKey: "never", statusLabel: "Never" };
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return { statusKey: "never", statusLabel: "Never" };
-  const minutesAgo = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (minutesAgo <= 5) return { statusKey: "active", statusLabel: "Active" };
-  if (minutesAgo <= 60) return { statusKey: "idle", statusLabel: "Idle" };
-  if (minutesAgo <= 24 * 60) return { statusKey: "away", statusLabel: "Away" };
-  return { statusKey: "inactive", statusLabel: "Inactive" };
-}
-
-function buildEmployeeActivityRows(ctx) {
-  const techById = new Map((ctx.technicians || []).map((tech) => [tech.id, tech]));
-  const rowsByKey = new Map();
-
-  for (const tech of ctx.technicians || []) {
-    if (tech.active === false) continue;
-    rowsByKey.set(`tech:${tech.id}`, {
-      key: `tech:${tech.id}`,
-      name: tech.name || "Unnamed Tech",
-      email: "",
-      role: normalizeRole(tech.role || "technician"),
-      technicianId: tech.id,
-      lastActivity: null,
-      source: "No activity",
-    });
-  }
-
-  for (const log of ctx.accessLogs || []) {
-    const techId = log.technician_id || null;
-    const key = techId ? `tech:${techId}` : `user:${log.user_id || log.email || log.full_name || log.id}`;
-    const existing = rowsByKey.get(key) || {
-      key,
-      name: log.full_name || techById.get(techId)?.name || log.email || "Unknown User",
-      email: log.email || "",
-      role: normalizeRole(log.role || techById.get(techId)?.role || "technician"),
-      technicianId: techId,
-      lastActivity: null,
-      source: "No activity",
-    };
-    const when = log.accessed_at || log.created_at;
-    if (!existing.lastActivity || String(when || "") > String(existing.lastActivity || "")) {
-      existing.lastActivity = when;
-      existing.source = "App opened";
-      existing.email = log.email || existing.email || "";
-      existing.name = log.full_name || existing.name;
-      existing.role = normalizeRole(log.role || existing.role);
-    }
-    rowsByKey.set(key, existing);
-  }
-
-  for (const audit of ctx.auditLogs || []) {
-    const name = audit.actor_name || "Unknown User";
-    const lowerName = name.toLowerCase();
-    let matchKey = null;
-    for (const [key, row] of rowsByKey.entries()) {
-      if (row.name && row.name.toLowerCase() === lowerName) {
-        matchKey = key;
-        break;
-      }
-    }
-    const key = matchKey || `actor:${name}`;
-    const existing = rowsByKey.get(key) || {
-      key,
-      name,
-      email: "",
-      role: normalizeRole(audit.actor_role || "unknown"),
-      technicianId: null,
-      lastActivity: null,
-      source: "No activity",
-    };
-    const when = audit.created_at;
-    if (!existing.lastActivity || String(when || "") > String(existing.lastActivity || "")) {
-      existing.lastActivity = when;
-      existing.source = audit.action || "App action";
-      existing.role = normalizeRole(audit.actor_role || existing.role);
-    }
-    rowsByKey.set(key, existing);
-  }
-
-  return [...rowsByKey.values()].map((row) => {
-    const status = activityStatusFor(row.lastActivity);
-    const minutesAgo = row.lastActivity ? Math.floor((Date.now() - new Date(row.lastActivity).getTime()) / 60000) : null;
-    return { ...row, ...status, minutesAgo };
-  }).sort((a, b) => {
-    if (!a.lastActivity && !b.lastActivity) return a.name.localeCompare(b.name);
-    if (!a.lastActivity) return 1;
-    if (!b.lastActivity) return -1;
-    return String(b.lastActivity).localeCompare(String(a.lastActivity));
-  });
-}
-
-function formatRecipientGroup(value) {
-  if (value === "service_writers") return "Service Writers";
-  if (value === "both") return "Management + Service Writers";
-  return "Management";
-}
 
 function getStatusIdByName(ctx, name) {
   return ctx.statuses.find((s) => (s.name || "").toLowerCase() === name.toLowerCase())?.id || "";
@@ -7419,16 +7453,55 @@ async function rollForwardOverdueJobs(companyId, jobs, statuses) {
   return data || jobs;
 }
 
+
+function isManagementRole(role) {
+  return ["admin", "manager", "foreman", "service_writer"].includes(normalizeRole(role));
+}
+
+function relativeTime(value) {
+  if (!value) return "Never";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const minutes = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 14) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return d.toLocaleDateString();
+}
+
+function buildEmployeeActivityRows(ctx) {
+  const profileRows = (ctx.userProfiles || []).map((profile) => {
+    const lastAccess = [...(ctx.accessLogs || [])].filter((log) => log.user_id === profile.id).sort((a, b) => String(b.accessed_at || b.created_at || "").localeCompare(String(a.accessed_at || a.created_at || "")))[0];
+    const lastAudit = [...(ctx.auditLogs || [])].filter((log) => log.actor_user_id === profile.id || log.user_id === profile.id).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
+    const dates = [lastAccess?.accessed_at || lastAccess?.created_at, lastAudit?.created_at, profile.updated_at].filter(Boolean).map((v) => new Date(v)).filter((d) => !Number.isNaN(d.getTime()));
+    const last = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))).toISOString() : null;
+    const minutesAgo = last ? Math.floor((Date.now() - new Date(last).getTime()) / 60000) : null;
+    let statusKey = "never";
+    let statusLabel = "Never";
+    if (minutesAgo !== null && minutesAgo <= 5) { statusKey = "active"; statusLabel = "Active"; }
+    else if (minutesAgo !== null && minutesAgo <= 60) { statusKey = "idle"; statusLabel = "Idle"; }
+    else if (minutesAgo !== null && minutesAgo <= 24 * 60) { statusKey = "away"; statusLabel = "Away"; }
+    else if (minutesAgo !== null) { statusKey = "inactive"; statusLabel = "Inactive"; }
+    return { key: profile.id, name: profile.full_name || "Unnamed", email: profile.email || "", role: profile.role || "technician", lastActivity: last, minutesAgo, statusKey, statusLabel, source: lastAccess ? "Login" : lastAudit ? "Action" : "Profile" };
+  });
+  const byName = new Set(profileRows.map((r) => String(r.name || "").toLowerCase()));
+  const techRows = (ctx.technicians || []).filter((tech) => tech.active && !byName.has(String(tech.name || "").toLowerCase())).map((tech) => ({ key: `tech-${tech.id}`, name: tech.name, email: "", role: tech.role || "technician", lastActivity: null, minutesAgo: null, statusKey: "never", statusLabel: "Never", source: "Technician" }));
+  return [...profileRows, ...techRows].sort((a, b) => (a.minutesAgo ?? 999999) - (b.minutesAgo ?? 999999));
+}
+
 function makeAccessFromProfile(profile) {
   if (!profile) return null;
   const role = normalizeRole(profile.role);
   return {
     role,
+    userId: profile.id || profile.user_id || "",
     technicianId: profile.technician_id || "",
     companyId: profile.company_id || profile.companies?.id || "",
     fullName: profile.full_name || "",
     email: profile.email || "",
-    userId: profile.id || "",
   };
 }
 
@@ -7446,13 +7519,13 @@ function normalizeRole(role) {
 
 function getAllowedViewNames(access) {
   const role = normalizeRole(access?.role);
-  const sharedTechViews = ["Dashboard", "Mobile Manager", "Performance", "Hall of Fame", "Notifications"];
+  const sharedTechViews = ["Dashboard", "Mobile Manager", "Performance", "Messages", "Hall of Fame", "Notifications"];
   const map = {
     admin: ["Performance", "Mobile Manager", "Notifications", "Messages", "Hall of Fame", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"],
     manager: ["Performance", "Mobile Manager", "Notifications", "Messages", "Hall of Fame", "Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Cloud Status"],
     foreman: ["Performance", "Mobile Manager", "Notifications", "Messages", "Hall of Fame", "Dashboard", "Schedule", "Foreman", "Production Log", "Technicians"],
     service_writer: ["Notifications", "Messages", "Dashboard", "Schedule", "Outlook Calendar", "Production Log"],
-    technician: ["Dashboard", "Mobile Manager", "Performance", "Messages", "Hall of Fame", "Notifications"],
+    technician: sharedTechViews,
   };
   return map[role] || map.technician;
 }
@@ -7730,7 +7803,7 @@ function AccessGate({ technicians, onSave }) {
   );
 }
 
-function LiveTechnicianAvailability({ jobs, ctx }) {
+function LiveTechnicianAvailability({ jobs, ctx, embedded = false }) {
   const now = new Date();
 
   function getTechCurrentJob(techId) {
@@ -7819,16 +7892,14 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
     );
   }
 
-  return (
-    <Panel title="Live Technician Availability" chip="Current">
-      <div className="availabilityTable">
+  const availabilityContent = (
+      <div className="availabilityTable dashboardAvailabilityTable">
         <div className="availabilityRow availabilityHeader">
-          <span>Technician</span>
-          <span>Current Job</span>
-          <span>Status</span>
-          <span>Time Remaining</span>
-          <span>Available At</span>
-          <span>Next Job</span>
+          <span>Tech</span>
+          <span>Current / status</span>
+          <span>Remaining</span>
+          <span>Available</span>
+          <span>Next</span>
         </div>
 
         {ctx.technicians
@@ -7868,16 +7939,22 @@ function LiveTechnicianAvailability({ jobs, ctx }) {
                 }`}
                 key={tech.id}
               >
-                <strong>{tech.name}</strong>
-                <span>{product}</span>
-                <span>{status}</span>
+                <strong className="availabilityTechName">{tech.name}</strong>
+                <span className="availabilityJobCell"><b>{product}</b><small>{status}</small></span>
                 <span className={!isHelperOnly && overdue ? "negativeTime" : ""}>{clockedIn && !isHelperOnly ? getTimeRemaining(finish, Boolean(currentJob)) : "—"}</span>
-                <span>{clockedIn ? (isHelperOnly ? "Now" : formatAvailableAt(finish, Boolean(currentJob))) : "Not clocked in"}</span>
-                <span>{nextProduct}</span>
+                <span>{clockedIn ? (isHelperOnly ? "Now" : formatAvailableAt(finish, Boolean(currentJob))) : "Off"}</span>
+                <span className="availabilityNextJob">{nextProduct}</span>
               </div>
             );
           })}
       </div>
+  );
+
+  if (embedded) return availabilityContent;
+
+  return (
+    <Panel title="Live Technician Availability" chip="Current">
+      {availabilityContent}
     </Panel>
   );
 }
