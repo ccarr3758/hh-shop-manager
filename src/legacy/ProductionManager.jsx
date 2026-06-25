@@ -1901,104 +1901,253 @@ function DashboardRoadblockRequests({ ctx, access, reload }) {
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
-  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+function buildDashboardRequestItems(ctx, access) {
+  return (ctx.notifications || [])
+    .filter((notification) => canReceiveNotification(notification, access))
+    .filter(isPendingRoadblockExtensionRequest)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+}
+
+function getTomorrowIso(selectedDate) {
+  const d = new Date(`${selectedDate || todayIso()}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function getJobsForExactDate(jobs, date) {
+  return (jobs || []).filter((job) => (job.scheduled_date || todayIso()) === date);
+}
+
+function getSimpleDailyMetrics(jobs, ctx, selectedDate) {
+  return calculateMetrics(getJobsForExactDate(jobs, selectedDate), ctx, selectedDate);
+}
+
+function getPulseState({ efficiency, capacity, activeJobs, overdueJobs, requestCount, comebackCount }) {
+  if (overdueJobs > 2 || requestCount > 4 || efficiency < 85 || capacity >= 115) {
+    return { label: "Critical", className: "critical", note: "Immediate attention needed." };
+  }
+  if (overdueJobs > 0 || requestCount > 0 || capacity >= 95 || efficiency < 100 || comebackCount > 0) {
+    return { label: "Watch", className: "watch", note: "Stable, but needs management focus." };
+  }
+  if (activeJobs === 0) {
+    return { label: "Idle", className: "idle", note: "No active production pressure." };
+  }
+  return { label: "Strong", className: "strong", note: "Shop is running ahead of pace." };
+}
+
+function getDashboardTiming(job, ctx) {
+  const finish = getJobProjectedFinish(job, ctx);
+  const finishMinutes = timeStringToMinutes(finish.finishTime);
+  const now = getCurrentMinuteOfDay();
+  const openToday = !finish.dayOffset;
+  const overdue = openToday && finishMinutes < now && !ctx.isComplete(job.status_id);
+  return { finish, finishMinutes, overdue };
+}
+
+function ShopPulseCard({ jobs, allJobs, ctx, metrics, selectedDate, requestCount }) {
+  const activeJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "In Progress" && !ctx.isComplete(j.status_id));
+  const pausedJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "Paused");
+  const qcJobs = jobs.filter((j) => ctx.status(j.status_id)?.name === "QC");
+  const overdueJobs = activeJobs.filter((job) => getDashboardTiming(job, ctx).overdue);
+  const comebackCount = (ctx.comebacks || ctx.comebackRework || []).filter((row) => (row.status || "open") !== "resolved").length;
+  const pulse = getPulseState({
+    efficiency: Number(metrics.efficiency || 0),
+    capacity: Number(metrics.capacity || 0),
+    activeJobs: activeJobs.length,
+    overdueJobs: overdueJobs.length,
+    requestCount,
+    comebackCount,
+  });
+  const tomorrowDate = getTomorrowIso(selectedDate);
+  const tomorrowMetrics = getSimpleDailyMetrics(allJobs, ctx, tomorrowDate);
+  const focusItems = [];
+  if (requestCount) focusItems.push(`${requestCount} request${requestCount === 1 ? "" : "s"} waiting`);
+  if (overdueJobs.length) focusItems.push(`${overdueJobs.length} job${overdueJobs.length === 1 ? "" : "s"} over book time`);
+  if (pausedJobs.length) focusItems.push(`${pausedJobs.length} paused job${pausedJobs.length === 1 ? "" : "s"}`);
+  if (qcJobs.length) focusItems.push(`${qcJobs.length} job${qcJobs.length === 1 ? "" : "s"} in QC`);
+  if (tomorrowMetrics.capacity >= 95) focusItems.push(`Tomorrow ${tomorrowMetrics.capacity}% booked`);
+  if (!focusItems.length) focusItems.push("No immediate manager action detected");
 
   return (
-    <section className="page">
-      <div className="hero">
-        <div>
-          <p className="eyebrow">Live production</p>
-          <h3>{selectedDate === todayIso() ? "Today’s shop performance" : `Shop performance for ${selectedDate}`}</h3>
-          <p>Every card reads from Supabase. Updates from another device sync back into this dashboard.</p>
-        </div>
-        <div className="heroMetric">
-          <span>Shop efficiency</span>
+    <section className={`shopPulseCard ${pulse.className}`}>
+      <div className="shopPulseMain">
+        <p className="eyebrow">Shop Pulse</p>
+        <div className="shopPulseTitleRow">
+          <h3>{pulse.label}</h3>
           <strong className={effClass(metrics.efficiency)}>{Math.round(metrics.efficiency)}%</strong>
         </div>
+        <p>{pulse.note}</p>
+      </div>
+      <div className="shopPulseStats">
+        <div><span>Capacity</span><strong>{metrics.capacity}%</strong></div>
+        <div><span>Active</span><strong>{activeJobs.length}</strong></div>
+        <div><span>Requests</span><strong>{requestCount}</strong></div>
+        <div><span>Overdue</span><strong>{overdueJobs.length}</strong></div>
+      </div>
+      <div className="managerFocusStrip">
+        <span>Manager Focus</span>
+        <div>{focusItems.slice(0, 3).map((item) => <b key={item}>{item}</b>)}</div>
+      </div>
+    </section>
+  );
+}
+
+function CompactKpiStrip({ jobs, ctx, metrics }) {
+  const inProgress = jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length;
+  const paused = jobs.filter(j => ctx.status(j.status_id)?.name === "Paused").length;
+  const qc = jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length;
+  const items = [
+    { label: "Capacity", value: `${metrics.capacity}%`, caption: "Workload" },
+    { label: "Completed", value: metrics.completedJobs, caption: "Jobs" },
+    { label: "In Progress", value: inProgress, caption: "Live jobs" },
+    { label: "Book Hrs", value: metrics.bookComplete.toFixed(1), caption: "Complete" },
+    { label: "Actual Hrs", value: metrics.actualUsed.toFixed(1), caption: "Used" },
+    { label: "Helpers", value: `${metrics.helperBookComplete.toFixed(1)} / ${metrics.helperActualUsed.toFixed(1)}`, caption: "Book / actual" },
+    { label: "Avg Install", value: `${metrics.avgActualTime.toFixed(2)}h`, caption: "Completed" },
+    { label: "Efficiency", value: `${Math.round(metrics.efficiency)}%`, caption: "Overall" },
+  ];
+  if (paused > 0) items.splice(3, 0, { label: "Paused", value: paused, caption: "Needs attention", alert: true });
+  if (qc > 0) items.splice(4, 0, { label: "QC", value: qc, caption: "Awaiting inspection", alert: true });
+
+  return (
+    <div className="compactKpiStrip">
+      {items.map((item) => (
+        <article key={item.label} className={`compactKpi ${item.alert ? "alert" : ""}`}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+          <small>{item.caption}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DashboardRequestsPanel({ ctx, access, reload, requests }) {
+  if (!requests.length) {
+    return (
+      <Panel title="Outstanding Requests" chip="Clear">
+        <div className="emptyRequestState">
+          <strong>No pending requests</strong>
+          <p className="muted">Roadblock extensions and approval requests will stay here until handled.</p>
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel title="Outstanding Requests" chip={`${requests.length} pending`}>
+      <div className="dashboardRequestList compact">
+        {requests.slice(0, 4).map((notification) => (
+          <PendingRoadblockExtensionCard
+            key={notification.id}
+            notification={notification}
+            ctx={ctx}
+            access={access}
+            reload={reload}
+          />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function WeeklyTrendPanel({ allJobs, ctx, selectedDate }) {
+  const base = new Date(`${selectedDate || todayIso()}T00:00:00`);
+  const days = Array.from({ length: 5 }, (_, index) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() - (4 - index));
+    const date = d.toISOString().slice(0, 10);
+    const dayJobs = getJobsForExactDate(allJobs, date);
+    const dayMetrics = calculateMetrics(dayJobs, ctx, date);
+    return {
+      date,
+      label: d.toLocaleDateString([], { weekday: "short" }),
+      efficiency: Math.round(dayMetrics.efficiency || 0),
+      book: Number(dayMetrics.bookComplete || 0),
+      completed: Number(dayMetrics.completedJobs || 0),
+    };
+  });
+  const maxBook = Math.max(1, ...days.map((day) => day.book));
+
+  return (
+    <Panel title="Weekly Trend" chip="Book hours">
+      <div className="weeklyTrendRows">
+        {days.map((day) => (
+          <div className="weeklyTrendRow" key={day.date}>
+            <span>{day.label}</span>
+            <div className="weeklyTrendTrack"><b style={{ width: `${Math.max(4, (day.book / maxBook) * 100)}%` }} /></div>
+            <strong>{day.book.toFixed(1)}h</strong>
+            <small>{day.completed} jobs</small>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function CapacityForecastPanel({ allJobs, ctx, selectedDate }) {
+  const days = [0, 1, 2].map((offset) => {
+    const d = new Date(`${selectedDate || todayIso()}T00:00:00`);
+    d.setDate(d.getDate() + offset);
+    const date = d.toISOString().slice(0, 10);
+    const metrics = getSimpleDailyMetrics(allJobs, ctx, date);
+    return {
+      date,
+      label: offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : d.toLocaleDateString([], { weekday: "long" }),
+      capacity: metrics.capacity,
+      openBook: getJobsForExactDate(allJobs, date).filter((j) => !ctx.isComplete(j.status_id)).reduce((sum, job) => sum + getAdjustedBookHours(job), 0),
+    };
+  });
+
+  return (
+    <Panel title="Capacity Forecast" chip="Next 3 days">
+      <div className="capacityForecastList">
+        {days.map((day) => (
+          <div className={`capacityForecastRow ${day.capacity >= 100 ? "over" : day.capacity >= 85 ? "watch" : ""}`} key={day.date}>
+            <div><strong>{day.label}</strong><span>{day.openBook.toFixed(1)} open book hrs</span></div>
+            <div className="capacityMiniTrack"><b style={{ width: `${Math.min(100, Math.max(2, day.capacity))}%` }} /></div>
+            <em>{day.capacity}%</em>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
+  const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
+  const requests = buildDashboardRequestItems(ctx, access);
+
+  return (
+    <section className="page dashboardPolished">
+      <ShopPulseCard jobs={jobs} allJobs={allJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} requestCount={requests.length} />
+
+      <div className="dashboardTopGrid">
+        <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
+        <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
+          <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
+        </Panel>
       </div>
 
-      <DashboardRoadblockRequests ctx={ctx} access={access} reload={reload} />
+      <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
 
-     <div className="kpis">
-  <Kpi title="Shop Capacity" value={`${metrics.capacity}%`} caption="Current workload" />
-
-  <Kpi
-    title="Jobs Completed"
-    value={metrics.completedJobs}
-    caption="Completed jobs"
-  />
-
-  <Kpi
-    title="Jobs In Progress"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "In Progress").length}
-    caption="Currently working"
-  />
-
-  <Kpi
-    title="Paused Jobs"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "Paused").length}
-    caption="Needs attention"
-  />
-
-  <Kpi
-    title="QC Queue"
-    value={jobs.filter(j => ctx.status(j.status_id)?.name === "QC").length}
-    caption="Awaiting inspection"
-  />
-
-  <Kpi
-    title="Book Hours Complete"
-    value={metrics.bookComplete.toFixed(1)}
-    caption="Completed"
-  />
-
-  <Kpi
-    title="Actual Hours Used"
-    value={metrics.actualUsed.toFixed(1)}
-    caption="Completed"
-  />
-
-  <Kpi
-    title="Helper Book Hours"
-    value={metrics.helperBookComplete.toFixed(1)}
-    caption="Added to performance"
-  />
-
-  <Kpi
-    title="Helper Actual Hours"
-    value={metrics.helperActualUsed.toFixed(1)}
-    caption="Hours helped"
-  />
-
-  <Kpi
-    title="Average Install Time"
-    value={`${metrics.avgActualTime.toFixed(2)} hrs`}
-    caption="Completed jobs"
-  />
-
-  <Kpi
-    title="Shop Efficiency"
-    value={`${Math.round(metrics.efficiency)}%`}
-    caption="Overall"
-  />
-</div>
-
-      <LiveTechnicianAvailability jobs={jobs} ctx={ctx} />
-
-      <div className="grid two">
-        <Panel title="Live shop board" chip="Open jobs">
-          <div className="jobList">
+      <div className="grid two dashboardLowerGrid">
+        <Panel title="Jobs In Progress" chip="Open jobs">
+          <div className="jobList compactJobList">
             {openJobs.length ? (
-              openJobs.map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
+              openJobs.slice(0, 8).map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
             ) : (
               <p className="muted">No open jobs.</p>
             )}
           </div>
         </Panel>
-        <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
-          <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
-        </Panel>
+        <div className="dashboardStack">
+          <WeeklyTrendPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
+          <CapacityForecastPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
+          <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
+            <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
+          </Panel>
+        </div>
       </div>
     </section>
   );
