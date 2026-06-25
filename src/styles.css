@@ -1191,86 +1191,150 @@ button:not(.primary):not(.sidebarButton) {
 .notificationPermissionRow span { display: block; color: #64748b; font-size: 12px; font-weight: 800; margin-top: 2px; }
 @media(max-width:640px){.notificationPermissionRow{grid-template-columns:1fr}.notificationPermissionRow button{width:100%}}
 
-/* Dashboard polish: compact command-center layout */
-.dashboardPolished{padding-top:18px}.shopPulseCard{display:grid;grid-template-columns:minmax(260px,1.15fr) minmax(360px,1.5fr);gap:18px;align-items:stretch;padding:22px 24px;border-radius:28px;margin-bottom:18px;color:white;box-shadow:var(--shadow);background:radial-gradient(circle at 12% 18%,rgba(249,115,22,.28),transparent 32%),linear-gradient(135deg,#111827,#334155)}.shopPulseCard.strong{background:radial-gradient(circle at 12% 18%,rgba(22,163,74,.28),transparent 32%),linear-gradient(135deg,#052e16,#111827)}.shopPulseCard.watch,.shopPulseCard.idle{background:radial-gradient(circle at 12% 18%,rgba(245,158,11,.28),transparent 32%),linear-gradient(135deg,#422006,#111827)}.shopPulseCard.critical{background:radial-gradient(circle at 12% 18%,rgba(220,38,38,.28),transparent 32%),linear-gradient(135deg,#450a0a,#111827)}.shopPulseMain .eyebrow{color:#fed7aa}.shopPulseMain h3{margin:0;font-size:42px;letter-spacing:-.07em;line-height:.95}.shopPulseMain p:last-child{margin:8px 0 0;color:#cbd5e1}.shopPulseTitleRow{display:flex;align-items:flex-end;gap:16px}.shopPulseTitleRow strong{font-size:38px;letter-spacing:-.06em}.shopPulseStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.shopPulseStats div{padding:15px;border-radius:18px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14)}.shopPulseStats span,.managerFocusStrip span{display:block;color:#cbd5e1;font-size:12px;font-weight:850;text-transform:uppercase;letter-spacing:.08em}.shopPulseStats strong{display:block;margin-top:5px;font-size:28px;letter-spacing:-.05em}.managerFocusStrip{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}.managerFocusStrip div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.managerFocusStrip b{font-size:12px;border-radius:999px;padding:6px 10px;background:rgba(255,255,255,.12);color:#fff}.dashboardTopGrid{display:grid;grid-template-columns:minmax(360px,.85fr) minmax(520px,1.15fr);gap:18px;margin-bottom:18px}.compactKpiStrip{display:grid;grid-template-columns:repeat(8,minmax(100px,1fr));gap:10px;margin-bottom:18px}.compactKpi{min-height:92px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:13px 14px;box-shadow:0 14px 34px rgba(15,23,42,.08)}.compactKpi.alert{border-color:#fed7aa;background:#fff7ed}.compactKpi span{display:block;color:#64748b;font-size:12px;font-weight:900}.compactKpi strong{display:block;margin-top:5px;font-size:25px;letter-spacing:-.055em;white-space:nowrap}.compactKpi small{display:block;margin-top:2px;color:#64748b}.emptyRequestState{padding:16px;border:1px dashed var(--line);border-radius:18px;background:#f8fafc}.emptyRequestState strong{display:block;font-size:18px}.dashboardRequestList.compact{max-height:360px;overflow:auto}.dashboardLowerGrid{align-items:start}.dashboardStack{display:grid;gap:18px}.compactJobList{max-height:720px;overflow:auto;padding-right:4px}.weeklyTrendRows{display:grid;gap:11px}.weeklyTrendRow{display:grid;grid-template-columns:44px 1fr 64px 54px;gap:10px;align-items:center}.weeklyTrendRow span,.weeklyTrendRow small{color:var(--muted);font-size:12px;font-weight:800}.weeklyTrendRow strong{text-align:right;font-size:13px}.weeklyTrendTrack,.capacityMiniTrack{height:12px;border-radius:999px;background:#e5e7eb;overflow:hidden}.weeklyTrendTrack b,.capacityMiniTrack b{display:block;height:100%;border-radius:inherit;background:#f97316}.capacityForecastList{display:grid;gap:11px}.capacityForecastRow{display:grid;grid-template-columns:140px 1fr 52px;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff}.capacityForecastRow.watch{background:#fffbeb;border-color:#fde68a}.capacityForecastRow.over{background:#fef2f2;border-color:#fecaca}.capacityForecastRow strong{display:block}.capacityForecastRow span{display:block;color:var(--muted);font-size:12px;margin-top:2px}.capacityForecastRow em{font-style:normal;font-weight:950;text-align:right}.capacityForecastRow.watch .capacityMiniTrack b{background:#f59e0b}.capacityForecastRow.over .capacityMiniTrack b{background:#dc2626}.dashboardPolished .kpis{display:none}.dashboardPolished .panel{box-shadow:0 14px 34px rgba(15,23,42,.08)}.dashboardPolished .liveTechGrid{max-height:360px;overflow:auto}.dashboardPolished .jobCard{padding:13px;border-radius:16px}.dashboardPolished .panelHead{margin-bottom:12px}.dashboardPolished .panelHead h3{font-size:18px}
-@media(max-width:1300px){.compactKpiStrip{grid-template-columns:repeat(4,minmax(0,1fr))}.dashboardTopGrid,.shopPulseCard{grid-template-columns:1fr}.shopPulseStats{grid-template-columns:repeat(4,1fr)}}@media(max-width:760px){.shopPulseStats,.compactKpiStrip{grid-template-columns:repeat(2,1fr)}.managerFocusStrip{display:block}.managerFocusStrip div{justify-content:flex-start;margin-top:8px}.dashboardTopGrid{grid-template-columns:1fr}.weeklyTrendRow{grid-template-columns:38px 1fr 54px}.weeklyTrendRow small{display:none}.capacityForecastRow{grid-template-columns:1fr}.capacityForecastRow em{text-align:left}.shopPulseMain h3{font-size:34px}}
-
-/* Dashboard glance polish: keep live shop status fully visible without horizontal scrolling */
-.dashboardTopGrid{
-  grid-template-columns:minmax(240px,.42fr) minmax(760px,1.58fr);
-  align-items:start;
+/* Admin employee activity + shop messaging */
+.activitySummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
-.dashboardTopGrid > .panel:first-child{
-  min-height:0;
+.activitySummary .kpi {
+  box-shadow: none;
+  padding: 14px;
 }
-.dashboardTopGrid > .panel:first-child .panelBody{
-  padding-bottom:14px;
+.activitySummary .kpi strong {
+  font-size: 26px;
 }
-.dashboardTopGrid > .panel:first-child .emptyRequestState{
-  padding:12px 14px;
-  border-radius:14px;
+.activityTable {
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
 }
-.dashboardTopGrid > .panel:first-child .emptyRequestState strong{
-  font-size:15px;
+.activityRow {
+  display: grid;
+  grid-template-columns: 1.2fr .7fr .65fr .95fr .9fr;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e5eaf1;
+  border-radius: 14px;
+  background: #fff;
+  min-width: 850px;
 }
-.dashboardTopGrid > .panel:first-child .emptyRequestState p{
-  font-size:12px;
-  margin:6px 0 0;
-  line-height:1.35;
+.activityHeader {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .06em;
 }
-.dashboardPolished .dashboardAvailabilityTable{
-  overflow-x:visible;
-  border-radius:16px;
+.activityRow small,
+.messageCard small,
+.messageMeta {
+  color: #64748b;
+  font-size: 12px;
 }
-.dashboardPolished .dashboardAvailabilityTable .availabilityRow{
-  min-width:0;
-  grid-template-columns:minmax(72px,.75fr) minmax(230px,2.4fr) minmax(84px,.8fr) minmax(92px,.9fr) minmax(150px,1.45fr);
-  gap:8px;
-  padding:10px 12px;
-  font-size:13px;
+.activityRow > div:first-child,
+.activityRow > div:nth-child(4) {
+  display: grid;
+  gap: 2px;
 }
-.dashboardPolished .dashboardAvailabilityTable .availabilityHeader{
-  text-align:left;
+.statusMini.active {
+  background: #dcfce7;
+  color: #166534;
 }
-.availabilityJobCell,
-.availabilityNextJob{
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
+.statusMini.idle {
+  background: #fef3c7;
+  color: #92400e;
 }
-.availabilityJobCell b,
-.availabilityJobCell small{
-  display:block;
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+.statusMini.away {
+  background: #ffedd5;
+  color: #9a3412;
 }
-.availabilityJobCell b{
-  font-weight:800;
+.statusMini.inactive,
+.statusMini.never {
+  background: #fee2e2;
+  color: #991b1b;
 }
-.availabilityJobCell small{
-  margin-top:2px;
-  color:inherit;
-  opacity:.75;
-  font-weight:800;
+.messagesLayout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.75fr) minmax(0, 1.25fr);
+  gap: 18px;
+  align-items: start;
 }
-.availabilityNextJob{
-  white-space:normal;
-  line-height:1.25;
-  max-height:2.55em;
+.messageComposer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
-.availabilityTechName{
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+.messageComposer textarea,
+.messageReplyBox textarea {
+  width: 100%;
+  min-height: 110px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px;
+  background: white;
+  resize: vertical;
+  font: inherit;
 }
-@media(max-width:1300px){
-  .dashboardTopGrid{grid-template-columns:1fr;}
-  .dashboardPolished .dashboardAvailabilityTable{overflow-x:auto;}
-  .dashboardPolished .dashboardAvailabilityTable .availabilityRow{min-width:760px;}
+.messageList {
+  display: grid;
+  gap: 12px;
+  max-height: 760px;
+  overflow: auto;
 }
-
-/* Employee management */
-.employeeManageHead{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;margin-bottom:14px}.employeeManageHead strong{display:block;font-size:17px;color:#0f172a}.employeeManageHead span{display:block;color:#64748b;font-size:12px;font-weight:800;margin-top:3px}.employeeSetupWarning{display:grid;gap:4px;padding:13px 14px;border-radius:16px;border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;margin-bottom:14px}.employeeSetupWarning strong{font-size:15px}.employeeSetupWarning span,.employeeSetupWarning small{font-size:12px;font-weight:800}.employeeTable{display:grid;gap:8px;overflow-x:auto}.employeeRow{display:grid;grid-template-columns:minmax(130px,1.2fr) minmax(180px,1.4fr) minmax(105px,.8fr) minmax(120px,1fr) 80px minmax(250px,1.6fr);gap:10px;align-items:center;min-width:920px;padding:11px 12px;border:1px solid var(--line);border-radius:14px;background:#fff}.employeeHeader{background:#f8fafc;color:#64748b;font-size:12px;font-weight:950;text-transform:uppercase;letter-spacing:.06em}.employeeActions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.employeeActions button{padding:7px 9px;border-radius:10px}.rolePill{display:inline-flex;align-items:center;width:max-content;padding:5px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.employeeEditor{margin-top:14px;border-color:#dbeafe;background:#eff6ff}.employeeEditor select{min-height:40px;border-radius:10px;border:1px solid rgba(15,23,42,.16);padding:0 10px;background:white;font-weight:800}.passwordEditor{background:#f8fafc;border-color:var(--line)}
-@media(max-width:760px){.employeeManageHead{grid-template-columns:1fr}.employeeManageHead button{width:100%}}
+.messageCard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e5eaf1;
+  border-radius: 18px;
+  background: #fff;
+}
+.messageCard.resolved {
+  opacity: .72;
+}
+.messageTop h4 {
+  margin: 8px 0 6px;
+  font-size: 18px;
+  letter-spacing: -.03em;
+}
+.messageTop p,
+.messageReply p {
+  margin: 0 0 8px;
+  color: #334155;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.messageMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.messageReply {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e5eaf1;
+}
+.messageReplyBox {
+  display: grid;
+  gap: 10px;
+}
+@media (max-width: 900px) {
+  .messagesLayout,
+  .activitySummary,
+  .messageComposer {
+    grid-template-columns: 1fr;
+  }
+  .activityRow {
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
+  .activityHeader {
+    display: none;
+  }
+}
