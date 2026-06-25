@@ -4450,6 +4450,8 @@ function Admin({ ctx, reload, access }) {
         <p>Technicians, categories, statuses, delay reasons, labor rates, and shop hours are stored in Supabase.</p>
       </div>
 
+      <EmployeeManagement ctx={ctx} access={access} reload={reload} />
+
       <div className="grid two">
         <EditableCloudList title="Technicians" table="technicians" items={ctx.technicians} reload={reload} companyId={ctx.company.id} type="technician" />
         <EditableCloudList title="Job Categories" table="categories" items={ctx.categories} reload={reload} companyId={ctx.company.id} type="category" extra={{ laborRates: ctx.laborRates }} />
@@ -4465,6 +4467,200 @@ function Admin({ ctx, reload, access }) {
       </div>
     </section>
   );
+}
+
+
+function EmployeeManagement({ ctx, access, reload }) {
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [draft, setDraft] = useState(null);
+  const [passwordDraft, setPasswordDraft] = useState(null);
+
+  const canManageEmployees = normalizeRole(access?.role) === "admin";
+
+  useEffect(() => {
+    if (canManageEmployees) loadEmployees();
+  }, [canManageEmployees, ctx.company?.id]);
+
+  async function invokeAdminUsers(action, payload = {}) {
+    const { data, error } = await supabase.functions.invoke("admin-api", {
+      body: { action, company_id: ctx.company.id, ...payload },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function loadEmployees() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await invokeAdminUsers("list");
+      setEmployees(data?.employees || []);
+    } catch (err) {
+      setError(err?.message || "Employee management is not configured yet.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startNewEmployee() {
+    setDraft({
+      full_name: "",
+      email: "",
+      role: "technician",
+      technician_id: "",
+      active: true,
+      password: "",
+    });
+  }
+
+  async function saveEmployee() {
+    if (!draft?.full_name?.trim()) return alert("Employee name is required.");
+    if (!draft?.email?.trim()) return alert("Login email/username is required.");
+    if (!draft.id && !draft.password) return alert("Temporary password is required for a new employee.");
+
+    setSaving(true);
+    try {
+      await invokeAdminUsers(draft.id ? "update_profile" : "create", {
+        user_id: draft.id,
+        full_name: draft.full_name.trim(),
+        email: draft.email.trim(),
+        role: draft.role,
+        technician_id: draft.technician_id || null,
+        active: draft.active !== false,
+        password: draft.password || undefined,
+      });
+      setDraft(null);
+      await loadEmployees();
+      await reload?.();
+    } catch (err) {
+      alert(err?.message || "Unable to save employee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePassword() {
+    if (!passwordDraft?.password || passwordDraft.password.length < 6) return alert("Use at least 6 characters.");
+    setSaving(true);
+    try {
+      await invokeAdminUsers("set_password", {
+        user_id: passwordDraft.id,
+        password: passwordDraft.password,
+      });
+      setPasswordDraft(null);
+      await loadEmployees();
+    } catch (err) {
+      alert(err?.message || "Unable to change password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(employee) {
+    setSaving(true);
+    try {
+      await invokeAdminUsers("update_profile", {
+        user_id: employee.id,
+        full_name: employee.full_name,
+        email: employee.email,
+        role: employee.role,
+        technician_id: employee.technician_id || null,
+        active: !employee.active,
+      });
+      await loadEmployees();
+      await reload?.();
+    } catch (err) {
+      alert(err?.message || "Unable to update employee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!canManageEmployees) return null;
+
+  return (
+    <Panel title="Employee Management" chip="Auth users">
+      <div className="employeeManageHead">
+        <div>
+          <strong>Internal logins and passwords</strong>
+          <span>Use this for fake/internal email accounts. Password changes happen through the secure Supabase Edge Function.</span>
+        </div>
+        <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
+      </div>
+
+      {error && (
+        <div className="employeeSetupWarning">
+          <strong>Setup needed</strong>
+          <span>{error}</span>
+          <small>Deploy the included Supabase Edge Function named <b>admin-api</b> and set SUPABASE_SECRET_KEY plus SUPABASE_PUBLISHABLE_KEY in Supabase function secrets.</small>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="muted">Loading employees...</p>
+      ) : (
+        <div className="employeeTable">
+          <div className="employeeRow employeeHeader">
+            <span>Employee</span><span>Login</span><span>Role</span><span>Technician</span><span>Status</span><span>Actions</span>
+          </div>
+          {employees.map((employee) => {
+            const linkedTech = ctx.technicians.find((tech) => tech.id === employee.technician_id);
+            return (
+              <div className="employeeRow" key={employee.id}>
+                <span><b>{employee.full_name || "Unnamed"}</b></span>
+                <span>{employee.email || "—"}</span>
+                <span className="rolePill">{formatRoleLabel(employee.role)}</span>
+                <span>{linkedTech?.name || "—"}</span>
+                <span className={employee.active ? "good" : "bad"}>{employee.active ? "Active" : "Inactive"}</span>
+                <span className="employeeActions">
+                  <button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button>
+                  <button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button>
+                  <button onClick={() => toggleActive(employee)}>{employee.active ? "Deactivate" : "Activate"}</button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {draft && (
+        <div className="inlineEditor employeeEditor">
+          <label>Full Name<input value={draft.full_name || ""} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></label>
+          <label>Login Email / Username<input value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} disabled={!!draft.id} /></label>
+          <label>Role<select value={draft.role || "technician"} onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="foreman">Foreman</option>
+            <option value="service_writer">Service Writer</option>
+            <option value="technician">Technician</option>
+          </select></label>
+          <label>Linked Technician<select value={draft.technician_id || ""} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}>
+            <option value="">No technician link</option>
+            {ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}
+          </select></label>
+          {!draft.id && <label>Temporary Password<input type="password" value={draft.password || ""} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>}
+          <label className="check"><input type="checkbox" checked={draft.active !== false} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
+          <div className="rowActions"><button className="primary" onClick={saveEmployee} disabled={saving}>Save Employee</button><button onClick={() => setDraft(null)}>Cancel</button></div>
+        </div>
+      )}
+
+      {passwordDraft && (
+        <div className="inlineEditor employeeEditor passwordEditor">
+          <p><b>Change password for {passwordDraft.full_name || passwordDraft.email}</b></p>
+          <label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label>
+          <div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function formatRoleLabel(role) {
+  return String(role || "technician").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function EditableCloudList({ title, table, items, reload, companyId, type, extra = {} }) {
