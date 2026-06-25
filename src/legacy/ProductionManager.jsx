@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Settings,
   Smartphone,
   Trophy,
@@ -423,6 +424,15 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const dailyJobs = useMemo(() => jobsForDate(visibleJobs, selectedDate), [visibleJobs, selectedDate]);
   const allDailyJobs = useMemo(() => jobsForDate(state.jobs, selectedDate), [state.jobs, selectedDate]);
   const metrics = useMemo(() => calculateMetrics(dailyJobs, ctx, selectedDate), [dailyJobs, ctx, selectedDate]);
+  const unreadMessageCount = useMemo(() => {
+    try {
+      return getVisibleThreads(ctx, access).filter((thread) =>
+        getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at)
+      ).length;
+    } catch {
+      return 0;
+    }
+  }, [ctx, access]);
 
   useEffect(() => {
     if (!allowedViewNames.includes(view)) {
@@ -612,23 +622,26 @@ export default function ProductionManager({ authProfile, onSignOut }) {
             <nav className="phoneBottomNav" aria-label="Mobile navigation">
               {[
                 ["Dashboard", LayoutDashboard, "Home"],
-                ["Mobile Manager", Smartphone, "Current"],
-                ["Performance", BarChart3, "Performance"],
-                ["Hall of Fame", Trophy, "Records"],
+                ["Mobile Manager", Smartphone, "Jobs"],
+                ["Performance", BarChart3, "Stats"],
                 ["Notifications", Bell, "Alerts"],
                 ["Messages", MessageSquare, "Messages"],
-              ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => (
-                <button
-                  key={name}
-                  className={view === name ? "active" : ""}
-                  onClick={() => setView(name)}
-                  aria-label={label}
-                  title={label}
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              ))}
+              ].filter(([name]) => allowedViewNames.includes(name)).map(([name, Icon, label]) => {
+                const badgeCount = name === "Messages" ? unreadMessageCount : 0;
+                return (
+                  <button
+                    key={name}
+                    className={view === name ? "active" : ""}
+                    onClick={() => setView(name)}
+                    aria-label={badgeCount ? `${label}, ${badgeCount} unread` : label}
+                    title={label}
+                  >
+                    <Icon aria-hidden="true" />
+                    {badgeCount > 0 && <b className="phoneNavBadge">{badgeCount > 9 ? "9+" : badgeCount}</b>}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
             </nav>
           </>
         )}
@@ -775,7 +788,7 @@ function MobileStyles() {
         body { background: #070d1c; -webkit-tap-highlight-color: transparent; }
         button, input, select, textarea { font-size: 16px; }
         .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
-        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(112px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(138px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
         .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
         .phoneHeaderLogo { display: block; width: 100px; max-height: 48px; object-fit: contain; margin: 0 0 4px; border-radius: 8px; }
@@ -877,13 +890,14 @@ function MobileStyles() {
         .phoneDatePicker { height: 38px !important; border-radius: 16px !important; font-size: 18px !important; padding: 0 14px !important; box-shadow: 0 8px 22px rgba(255,255,255,.04); }
         .phoneHeaderActions { grid-template-columns: 1fr; gap: 8px !important; }
         .phoneIconButton { width: 48px !important; height: 48px !important; border-radius: 18px !important; background: rgba(248,250,252,.96) !important; color: #f97316 !important; box-shadow: 0 16px 34px rgba(249,115,22,.24) !important; }
-        .phoneBottomNav { left: 14px !important; right: 14px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; min-height: 78px !important; border-radius: 26px !important; padding: 8px !important; gap: 7px !important; background: rgba(15,23,42,.94) !important; border: 1px solid rgba(255,255,255,.15) !important; backdrop-filter: blur(20px); box-shadow: 0 18px 42px rgba(0,0,0,.44) !important; }
-        .phoneBottomNav button { position: relative; border-radius: 20px !important; min-height: 58px !important; color: #94a3b8 !important; font-weight: 900 !important; padding: 0 !important; gap: 0 !important; transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
-        .phoneBottomNav button svg { width: 24px !important; height: 24px !important; stroke-width: 2.45 !important; }
+        .phoneBottomNav { left: 12px !important; right: 12px !important; bottom: calc(10px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; min-height: 72px !important; border-radius: 24px !important; padding: 7px !important; gap: 6px !important; background: rgba(15,23,42,.94) !important; border: 1px solid rgba(255,255,255,.15) !important; backdrop-filter: blur(20px); box-shadow: 0 18px 42px rgba(0,0,0,.44) !important; }
+        .phoneBottomNav button { position: relative; border-radius: 18px !important; min-height: 56px !important; min-width: 0 !important; color: #94a3b8 !important; font-weight: 900 !important; padding: 0 !important; gap: 0 !important; transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
+        .phoneBottomNav button svg { width: 23px !important; height: 23px !important; stroke-width: 2.45 !important; }
         .phoneBottomNav button span { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
         .phoneBottomNav button.active { background: #f97316 !important; color: #fff !important; transform: translateY(-2px) scale(1.02); box-shadow: 0 12px 24px rgba(249,115,22,.40); }
         .phoneBottomNav button.active svg { width: 26px !important; height: 26px !important; }
-        .phoneFab { right: 18px !important; bottom: calc(96px + env(safe-area-inset-bottom)) !important; width: 58px !important; height: 58px !important; border-radius: 21px !important; background: #f97316 !important; color: white !important; box-shadow: 0 16px 30px rgba(249,115,22,.36) !important; }
+        .phoneFab { right: 18px !important; bottom: calc(102px + env(safe-area-inset-bottom)) !important; width: 54px !important; height: 54px !important; border-radius: 20px !important; background: #f97316 !important; color: white !important; box-shadow: 0 16px 30px rgba(249,115,22,.36) !important; }
+        .phoneNavBadge { position: absolute !important; top: 7px !important; right: 9px !important; min-width: 18px !important; height: 18px !important; padding: 0 5px !important; border-radius: 999px !important; display: grid !important; place-items: center !important; background: #ef4444 !important; color: #fff !important; border: 2px solid rgba(15,23,42,.94) !important; font-size: 10px !important; line-height: 1 !important; font-weight: 1000 !important; }
 
         .mobileDashScreen { padding: 16px 12px 114px; background: #070d1c; min-height: calc(100vh - 84px); display: grid; gap: 16px; }
         .mobileHeroCard { border-radius: 30px; padding: 20px; background: radial-gradient(circle at top left, rgba(249,115,22,.28), transparent 36%), linear-gradient(145deg, #172033, #253246); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 24px 60px rgba(0,0,0,.34); }
@@ -4472,6 +4486,9 @@ function EmployeeManagement({ ctx, access, reload }) {
   const [error, setError] = useState("");
   const [draft, setDraft] = useState(null);
   const [passwordDraft, setPasswordDraft] = useState(null);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const canManageEmployees = normalizeRole(access?.role) === "admin";
 
   useEffect(() => {
@@ -4556,37 +4573,137 @@ function EmployeeManagement({ ctx, access, reload }) {
     }
   }
 
+  function activityForEmployee(employee) {
+    const accessLogs = [...(ctx.accessLogs || [])]
+      .filter((log) => log.user_id === employee.id || String(log.email || "").toLowerCase() === String(employee.email || "").toLowerCase())
+      .sort((a, b) => String(b.accessed_at || b.created_at || "").localeCompare(String(a.accessed_at || a.created_at || "")));
+    const auditLogs = [...(ctx.auditLogs || [])]
+      .filter((log) => log.actor_user_id === employee.id || log.user_id === employee.id)
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    const lastAccess = accessLogs[0];
+    const lastAudit = auditLogs[0];
+    const dates = [lastAccess?.accessed_at || lastAccess?.created_at, lastAudit?.created_at, employee.last_sign_in_at, employee.updated_at]
+      .filter(Boolean).map((v) => new Date(v)).filter((d) => !Number.isNaN(d.getTime()));
+    const last = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))).toISOString() : null;
+    const minutesAgo = last ? Math.floor((Date.now() - new Date(last).getTime()) / 60000) : null;
+    let statusKey = "never";
+    let statusLabel = "Never Used";
+    if (employee.active === false) { statusKey = "inactive"; statusLabel = "Inactive"; }
+    else if (minutesAgo !== null && minutesAgo <= 5) { statusKey = "active"; statusLabel = "Online"; }
+    else if (minutesAgo !== null && minutesAgo <= 60) { statusKey = "idle"; statusLabel = "Idle"; }
+    else if (minutesAgo !== null && minutesAgo <= 24 * 60) { statusKey = "away"; statusLabel = "Away"; }
+    else if (minutesAgo !== null) { statusKey = "inactive"; statusLabel = "Offline"; }
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const actionsToday = auditLogs.filter((log) => log.created_at && new Date(log.created_at) >= todayStart).length + accessLogs.filter((log) => (log.accessed_at || log.created_at) && new Date(log.accessed_at || log.created_at) >= todayStart).length;
+    const source = last && (last === (lastAccess?.accessed_at || lastAccess?.created_at)) ? "Login" : lastAudit ? "Action" : employee.last_sign_in_at ? "Auth" : "Profile";
+    return { lastActivity: last, lastLogin: lastAccess?.accessed_at || lastAccess?.created_at || employee.last_sign_in_at || null, minutesAgo, statusKey, statusLabel, actionsToday, source };
+  }
+
+  function unreadForEmployee(employee) {
+    return (ctx.messageThreads || []).filter((thread) => thread.participant_a_user_id === employee.id || thread.participant_b_user_id === employee.id)
+      .reduce((count, thread) => count + getThreadMessages(ctx, thread.id).filter((m) => m.sender_user_id === employee.id && !m.read_at).length, 0);
+  }
+
+  const enrichedEmployees = employees.map((employee) => {
+    const linkedTech = ctx.technicians.find((tech) => tech.id === employee.technician_id);
+    const activity = activityForEmployee(employee);
+    return { ...employee, linkedTech, activity, unread: unreadForEmployee(employee) };
+  });
+
+  const filteredEmployees = enrichedEmployees.filter((employee) => {
+    const haystack = `${employee.full_name || ""} ${employee.email || ""} ${employee.role || ""} ${employee.linkedTech?.name || ""}`.toLowerCase();
+    const matchesSearch = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesRole = roleFilter === "all" || normalizeRole(employee.role) === roleFilter || (roleFilter === "inactive" && employee.active === false);
+    return matchesSearch && matchesRole;
+  });
+
+  const selectedEmployee = enrichedEmployees.find((e) => e.id === selectedEmployeeId) || filteredEmployees[0] || null;
+  const onlineCount = enrichedEmployees.filter((e) => e.activity.statusKey === "active").length;
+  const activeToday = enrichedEmployees.filter((e) => e.activity.minutesAgo !== null && e.activity.minutesAgo <= 24 * 60).length;
+  const followUpCount = enrichedEmployees.filter((e) => e.activity.statusKey === "inactive" || e.activity.statusKey === "never").length;
+  const unreadTotal = enrichedEmployees.reduce((sum, e) => sum + e.unread, 0);
+
   if (!canManageEmployees) return null;
   return (
-    <Panel title="Employee Management" chip="Passwords">
-      <div className="employeeManageHead">
-        <div><strong>Internal employee logins</strong><span>Manage fake email accounts, roles, active status, and password changes.</span></div>
-        <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
-      </div>
-      {error && <div className="employeeSetupWarning"><strong>Setup needed</strong><span>{error}</span><small>Deploy the included Supabase Edge Function named <b>admin-api</b> and run the included SQL.</small></div>}
-      {loading ? <p className="muted">Loading employees...</p> : (
-        <div className="employeeTable">
-          <div className="employeeRow employeeHeader"><span>Employee</span><span>Login</span><span>Role</span><span>Technician</span><span>Status</span><span>Actions</span></div>
-          {employees.map((employee) => {
-            const linkedTech = ctx.technicians.find((tech) => tech.id === employee.technician_id);
-            return <div className="employeeRow" key={employee.id}>
-              <span><b>{employee.full_name || "Unnamed"}</b></span><span>{employee.email || "—"}</span><span className="rolePill">{formatRoleLabel(employee.role)}</span><span>{linkedTech?.name || "—"}</span><span className={employee.active ? "good" : "bad"}>{employee.active ? "Active" : "Inactive"}</span>
-              <span className="employeeActions"><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => toggleActive(employee)}>{employee.active ? "Deactivate" : "Activate"}</button></span>
-            </div>;
-          })}
-          {!employees.length && !error && <p className="muted">No employees returned yet.</p>}
+    <Panel title="Employee Management" chip={`${enrichedEmployees.length} users`}>
+      <div className="adminEmployeeShell">
+        <div className="employeeConsoleHero">
+          <div>
+            <p className="eyebrow">Admin Center</p>
+            <h3>Employee Control Center</h3>
+            <p>Track usage, reset passwords, edit roles, message employees, and spot who is not using the system.</p>
+          </div>
+          <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
         </div>
-      )}
-      {draft && <div className="inlineEditor employeeEditor">
-        <label>Full Name<input value={draft.full_name || ""} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></label>
-        <label>Login Email / Username<input value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} disabled={!!draft.id} /></label>
-        <label>Role<select value={draft.role || "technician"} onChange={(e) => setDraft({ ...draft, role: e.target.value })}><option value="admin">Admin</option><option value="manager">Manager</option><option value="foreman">Foreman</option><option value="service_writer">Service Writer</option><option value="technician">Technician</option></select></label>
-        <label>Linked Technician<select value={draft.technician_id || ""} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}><option value="">No technician link</option>{ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}</select></label>
-        {!draft.id && <label>Temporary Password<input type="password" value={draft.password || ""} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>}
-        <label className="check"><input type="checkbox" checked={draft.active !== false} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
-        <div className="rowActions"><button className="primary" onClick={saveEmployee} disabled={saving}>Save Employee</button><button onClick={() => setDraft(null)}>Cancel</button></div>
-      </div>}
-      {passwordDraft && <div className="inlineEditor employeeEditor passwordEditor"><p><b>Change password for {passwordDraft.full_name || passwordDraft.email}</b></p><label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label><div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div></div>}
+
+        <div className="employeeMetricsGrid">
+          <div><b>{enrichedEmployees.length}</b><span>Employees</span></div>
+          <div><b>{onlineCount}</b><span>Online Now</span></div>
+          <div><b>{activeToday}</b><span>Active Today</span></div>
+          <div><b>{followUpCount}</b><span>Needs Follow-up</span></div>
+          <div><b>{unreadTotal}</b><span>Unread Messages</span></div>
+        </div>
+
+        <div className="employeeToolbar">
+          <label className="employeeSearch"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees..." /></label>
+          <div className="employeeFilters">
+            {[["all", "All"], ["technician", "Techs"], ["foreman", "Foremen"], ["manager", "Managers"], ["service_writer", "Writers"], ["inactive", "Inactive"]].map(([value, label]) => <button key={value} className={roleFilter === value ? "active" : ""} onClick={() => setRoleFilter(value)}>{label}</button>)}
+          </div>
+        </div>
+
+        {error && <div className="employeeSetupWarning"><strong>Setup needed</strong><span>{error}</span><small>Deploy the included Supabase Edge Function named <b>admin-api</b> and run the included SQL.</small></div>}
+        {loading ? <p className="muted">Loading employees...</p> : (
+          <div className="employeeConsoleGrid">
+            <div className="employeeConsoleList">
+              <div className="employeeConsoleHeader"><span>Employee</span><span>Role</span><span>Status</span><span>Last Activity</span><span>Today</span><span>Messages</span><span>Actions</span></div>
+              {filteredEmployees.map((employee) => (
+                <div className={`employeeConsoleRow ${selectedEmployee?.id === employee.id ? "selected" : ""}`} key={employee.id} onClick={() => setSelectedEmployeeId(employee.id)}>
+                  <div className="employeeIdentity"><b>{employee.full_name || "Unnamed"}</b><small>{employee.linkedTech?.name ? `Tech: ${employee.linkedTech.name}` : employee.email || "No login shown"}</small></div>
+                  <span className="rolePill">{formatRoleLabel(employee.role)}</span>
+                  <span className={`statusMini ${employee.activity.statusKey}`}>{employee.activity.statusLabel}</span>
+                  <div className="employeeActivityCell"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
+                  <span>{employee.activity.actionsToday}</span>
+                  <span className={employee.unread ? "messageCount hot" : "messageCount"}>{employee.unread}</span>
+                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button></span>
+                </div>
+              ))}
+              {!filteredEmployees.length && !error && <p className="muted">No employees match that filter.</p>}
+            </div>
+
+            <aside className="employeeDetailCard">
+              {selectedEmployee ? <>
+                <div className="employeeDetailTop"><div><p className="eyebrow">Employee Details</p><h3>{selectedEmployee.full_name || "Unnamed"}</h3><span>{selectedEmployee.email || "No login email"}</span></div><span className={`statusMini ${selectedEmployee.activity.statusKey}`}>{selectedEmployee.activity.statusLabel}</span></div>
+                <div className="employeeDetailStats">
+                  <div><span>Role</span><b>{formatRoleLabel(selectedEmployee.role)}</b></div>
+                  <div><span>Linked Tech</span><b>{selectedEmployee.linkedTech?.name || "None"}</b></div>
+                  <div><span>Last Activity</span><b>{selectedEmployee.activity.lastActivity ? relativeTime(selectedEmployee.activity.lastActivity) : "Never"}</b></div>
+                  <div><span>Last Login</span><b>{selectedEmployee.activity.lastLogin ? relativeTime(selectedEmployee.activity.lastLogin) : "Never"}</b></div>
+                  <div><span>Today</span><b>{selectedEmployee.activity.actionsToday} actions</b></div>
+                  <div><span>Unread Messages</span><b>{selectedEmployee.unread}</b></div>
+                </div>
+                <div className="employeeDetailActions">
+                  <button className="primary" onClick={() => setDraft({ ...selectedEmployee, password: "" })}>Edit Employee</button>
+                  <button onClick={() => setPasswordDraft({ ...selectedEmployee, password: "" })}>Reset Password</button>
+                  <button onClick={() => toggleActive(selectedEmployee)}>{selectedEmployee.active ? "Deactivate" : "Activate"}</button>
+                </div>
+              </> : <p className="muted">Select an employee.</p>}
+            </aside>
+          </div>
+        )}
+
+        {draft && <div className="inlineEditor employeeEditor employeeDrawer">
+          <div className="employeeDrawerHead"><h3>{draft.id ? "Edit Employee" : "Add Employee"}</h3><button onClick={() => setDraft(null)}>Close</button></div>
+          <label>Full Name<input value={draft.full_name || ""} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></label>
+          <label>Login Email / Username<input value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} disabled={!!draft.id} /></label>
+          <label>Role<select value={draft.role || "technician"} onChange={(e) => setDraft({ ...draft, role: e.target.value })}><option value="admin">Admin</option><option value="manager">Manager</option><option value="foreman">Foreman</option><option value="service_writer">Service Writer</option><option value="technician">Technician</option></select></label>
+          <label>Linked Technician<select value={draft.technician_id || ""} onChange={(e) => setDraft({ ...draft, technician_id: e.target.value })}><option value="">No technician link</option>{ctx.technicians.map((tech) => <option key={tech.id} value={tech.id}>{tech.name}</option>)}</select></label>
+          {!draft.id && <label>Temporary Password<input type="password" value={draft.password || ""} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>}
+          <label className="check"><input type="checkbox" checked={draft.active !== false} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
+          <div className="rowActions"><button className="primary" onClick={saveEmployee} disabled={saving}>Save Employee</button><button onClick={() => setDraft(null)}>Cancel</button></div>
+        </div>}
+        {passwordDraft && <div className="inlineEditor employeeEditor passwordEditor employeeDrawer"><div className="employeeDrawerHead"><h3>Reset Password</h3><button onClick={() => setPasswordDraft(null)}>Close</button></div><p><b>{passwordDraft.full_name || passwordDraft.email}</b></p><label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label><div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div></div>}
+      </div>
     </Panel>
   );
 }

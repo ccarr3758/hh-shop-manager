@@ -1370,3 +1370,173 @@ button:not(.primary):not(.sidebarButton) {
   .threadMessages { max-height: 52vh; }
   .threadComposer { grid-template-columns: 1fr; }
 }
+
+/* Admin employee console redesign */
+.adminEmployeeShell { display: grid; gap: 16px; }
+.employeeConsoleHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(15,23,42,.95), rgba(30,41,59,.86));
+  color: #fff;
+}
+.employeeConsoleHero h3 { margin: 2px 0 6px; font-size: clamp(24px, 3vw, 34px); }
+.employeeConsoleHero p { margin: 0; color: rgba(226,232,240,.88); }
+.employeeMetricsGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+}
+.employeeMetricsGrid > div {
+  display: grid;
+  gap: 2px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255,255,255,.055);
+  box-shadow: var(--shadow-soft);
+}
+.employeeMetricsGrid b { font-size: 26px; line-height: 1; color: var(--text); }
+.employeeMetricsGrid span { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.employeeToolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.employeeSearch {
+  min-width: min(360px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.75);
+}
+.employeeSearch input { border: 0; background: transparent; min-height: 42px; width: 100%; outline: 0; font-weight: 700; }
+.employeeFilters { display: flex; gap: 8px; flex-wrap: wrap; }
+.employeeFilters button { border-radius: 999px; padding: 9px 12px; font-weight: 900; }
+.employeeFilters button.active { background: rgba(249,115,22,.14); border-color: rgba(249,115,22,.35); color: #c2410c; }
+.employeeConsoleGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(290px, .75fr);
+  gap: 16px;
+  align-items: start;
+}
+.employeeConsoleList { display: grid; gap: 8px; overflow-x: auto; }
+.employeeConsoleHeader,
+.employeeConsoleRow {
+  display: grid;
+  grid-template-columns: minmax(180px,1.45fr) minmax(90px,.7fr) minmax(90px,.7fr) minmax(120px,.9fr) 70px 85px minmax(150px,.9fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 930px;
+}
+.employeeConsoleHeader {
+  padding: 0 14px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.employeeConsoleRow {
+  cursor: pointer;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255,255,255,.72);
+  box-shadow: 0 8px 22px rgba(15,23,42,.06);
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.employeeConsoleRow:hover,
+.employeeConsoleRow.selected { transform: translateY(-1px); border-color: rgba(249,115,22,.36); box-shadow: 0 12px 28px rgba(15,23,42,.10); }
+.employeeIdentity { display: grid; gap: 3px; }
+.employeeIdentity b { color: var(--text); font-size: 15px; }
+.employeeIdentity small,
+.employeeActivityCell small { color: var(--muted); font-weight: 700; }
+.employeeActivityCell { display: grid; gap: 3px; }
+.employeeQuickActions { display: flex; gap: 6px; flex-wrap: wrap; }
+.employeeQuickActions button { padding: 8px 10px; border-radius: 11px; font-weight: 900; }
+.messageCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(148,163,184,.12);
+  font-weight: 900;
+}
+.messageCount.hot { background: rgba(249,115,22,.16); color: #c2410c; }
+.employeeDetailCard {
+  position: sticky;
+  top: 84px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.78);
+  box-shadow: var(--shadow-soft);
+}
+.employeeDetailTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.employeeDetailTop h3 { margin: 0 0 3px; font-size: 24px; }
+.employeeDetailTop span:not(.statusMini) { color: var(--muted); font-weight: 700; }
+.employeeDetailStats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.employeeDetailStats > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(15,23,42,.04);
+  border: 1px solid rgba(148,163,184,.20);
+}
+.employeeDetailStats span { color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.employeeDetailStats b { color: var(--text); }
+.employeeDetailActions { display: grid; gap: 8px; }
+.employeeDetailActions button { width: 100%; justify-content: center; }
+.employeeDrawer {
+  position: fixed;
+  right: 18px;
+  top: 88px;
+  z-index: 120;
+  width: min(420px, calc(100vw - 28px));
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 25px 70px rgba(15,23,42,.24);
+}
+.employeeDrawerHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.employeeDrawerHead h3 { margin: 0; }
+@media(max-width:1100px){
+  .employeeMetricsGrid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .employeeConsoleGrid{grid-template-columns:1fr;}
+  .employeeDetailCard{position:static;}
+}
+@media(max-width:760px){
+  .employeeConsoleHero{align-items:stretch; flex-direction:column;}
+  .employeeMetricsGrid{grid-template-columns:1fr 1fr;}
+  .employeeConsoleHeader{display:none;}
+  .employeeConsoleRow{
+    min-width:0;
+    grid-template-columns:1fr auto;
+    gap:8px 12px;
+  }
+  .employeeIdentity{grid-column:1 / -1;}
+  .employeeActivityCell{grid-column:1 / 2;}
+  .employeeQuickActions{grid-column:1 / -1;}
+  .employeeDetailStats{grid-template-columns:1fr;}
+  .employeeDrawer{left:14px; right:14px; top:70px; width:auto;}
+}
