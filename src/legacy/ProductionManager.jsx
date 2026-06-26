@@ -605,7 +605,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         )}
 
         {view === "Performance" && (
-  <PerformanceCenter jobs={visibleJobs} ctx={ctx} metrics={metrics} access={access} />
+  <PerformanceCenter jobs={state.jobs} ctx={ctx} metrics={metrics} access={access} />
 )}
         {view === "Mobile Manager" && (
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
@@ -7754,11 +7754,15 @@ function getAllowedViewNames(access) {
 }
 
 function filterJobsForAccess(jobs, access) {
-  // Technicians still have restricted actions, but their dashboard/jobs/leaderboards
-  // must use the full shop job set so every technician populates correctly.
-  // Previous filtering to only access.technicianId made other techs disappear or show
-  // zeroed stats when signed into a tech account.
-  return jobs || [];
+  const list = jobs || [];
+  if (!isTechnicianOnly(access)) return list;
+  const technicianId = access?.technicianId;
+  if (!technicianId) return [];
+
+  // Tech job views stay personal: Mobile Manager, Dashboard, and job lists only show
+  // jobs assigned to that technician. Competition views receive the full job set
+  // separately so leaderboards still calculate every technician accurately.
+  return list.filter((job) => job.technician_id === technicianId);
 }
 
 function requestNotificationPermission() {
