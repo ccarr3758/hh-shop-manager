@@ -117,3 +117,24 @@ using (
       and up.role in ('admin','manager','foreman')
   )
 );
+
+-- Allow message recipients to persist read receipts. Required so opened dashboard messages do not return as unread after refresh.
+drop policy if exists "participants update message read receipts" on public.shop_thread_messages;
+create policy "participants update message read receipts" on public.shop_thread_messages
+for update to authenticated
+using (
+  sender_user_id <> auth.uid()
+  and exists (
+    select 1 from public.shop_message_threads t
+    where t.id = thread_id
+      and (t.participant_a_user_id = auth.uid() or t.participant_b_user_id = auth.uid())
+  )
+)
+with check (
+  sender_user_id <> auth.uid()
+  and exists (
+    select 1 from public.shop_message_threads t
+    where t.id = thread_id
+      and (t.participant_a_user_id = auth.uid() or t.participant_b_user_id = auth.uid())
+  )
+);

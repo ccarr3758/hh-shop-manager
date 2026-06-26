@@ -2258,16 +2258,27 @@ function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages, markThrea
   const unreadThreads = threads.filter((thread) => getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at));
   const permissionLabel = getNotificationPermissionLabel();
   return (
-    <Panel title="Messages" chip={unreadThreads.length ? `${unreadThreads.length} unread` : "Clear"}>
+    <Panel title="New Messages" chip={unreadThreads.length ? `${unreadThreads.length} unread` : "Clear"}>
       <div className="dashboardMessagesBlock">
         <div className="dashboardMessagesHeader">
           <div>
-            <strong>{unreadThreads.length ? "New messages waiting" : "No unread messages"}</strong>
+            <strong>{unreadThreads.length ? "New messages waiting" : "No new messages"}</strong>
             <span>{permissionLabel}</span>
           </div>
           <button className="primary" onClick={onOpenMessages}><MessageSquare size={15} /> Open</button>
         </div>
-        <DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact onSelect={(threadId) => { markThreadReadNow?.(threadId); onOpenMessages?.(); }} />
+        {unreadThreads.length ? (
+          <DirectMessageThreadList
+            ctx={ctx}
+            access={access}
+            reload={reload}
+            compact
+            threadsOverride={unreadThreads}
+            onSelect={(threadId) => { markThreadReadNow?.(threadId); onOpenMessages?.(); }}
+          />
+        ) : (
+          <p className="dashboardNoNewMessages">Opened messages disappear from this dashboard list.</p>
+        )}
         <button className="wide" onClick={() => enableHhNotifications(ctx, access)}>Enable Notifications</button>
       </div>
     </Panel>
@@ -2279,21 +2290,20 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
   const requests = buildDashboardRequestItems(ctx, access);
 
   return (
-    <section className="page dashboardPolished">
-      <ShopPulseCard jobs={jobs} allJobs={allJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} requestCount={requests.length} />
-
+    <section className="page dashboardPolished dashboardAtGlance">
       <div className="dashboardCommandGrid">
         <div className="dashboardRequestStack">
           <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
           <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
-        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
-      </div>
-
-      <div className="dashboardLiveFull">
-        <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
-          <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
-        </Panel>
+        <div className="dashboardMainStack">
+          <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+          <div className="dashboardLiveFull">
+            <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
+              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+            </Panel>
+          </div>
+        </div>
       </div>
 
       <div className="grid two dashboardLowerGrid">
@@ -4920,8 +4930,9 @@ function MessagesCenter({ ctx, access, reload, markThreadReadNow, initialRecipie
   </section>;
 }
 
-function DirectMessageThreadList({ ctx, access, selectedThreadId, onSelect, compact = false }) {
-  const threads = getVisibleThreads(ctx, access).slice(0, compact ? 8 : 100);
+function DirectMessageThreadList({ ctx, access, selectedThreadId, onSelect, compact = false, threadsOverride = null }) {
+  const sourceThreads = Array.isArray(threadsOverride) ? threadsOverride : getVisibleThreads(ctx, access);
+  const threads = sourceThreads.slice(0, compact ? 8 : 100);
   return <div className="messageList threadList">{threads.map((thread) => { const last = getThreadMessages(ctx, thread.id).slice(-1)[0]; const unread = getThreadMessages(ctx, thread.id).some((m) => m.sender_user_id !== access?.userId && !m.read_at); return <button key={thread.id} className={`threadListItem ${selectedThreadId === thread.id ? "active" : ""} ${unread ? "unread" : ""}`} onClick={() => onSelect?.(thread.id)}><div><b>{getThreadPartnerName(ctx, thread, access)}</b><small>{last?.body || thread.last_message_preview || "No messages yet"}</small></div><span>{relativeTime(thread.last_message_at || thread.created_at)}</span></button>; })}{!threads.length && <p className="muted">No messages yet.</p>}</div>;
 }
 
