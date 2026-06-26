@@ -3345,3 +3345,263 @@ button.clear,.clearButton,.panelHead > span{
   z-index:4 !important;
   text-shadow:0 2px 8px rgba(0,0,0,.5) !important;
 }
+
+/* v25 real UI system hardening: remove remaining legacy white cards, including Technician Dashboard KPIs */
+:root{
+  --hh-bg:#07101d;
+  --hh-surface:#101827;
+  --hh-surface-2:#0d1728;
+  --hh-surface-3:#142033;
+  --hh-border:#2b3b52;
+  --hh-border-2:#3a4d68;
+  --hh-text:#f8fafc;
+  --hh-muted:#cbd5e1;
+  --hh-dim:#94a3b8;
+  --hh-orange:#f97316;
+  --hh-orange-2:#fb923c;
+  --hh-blue:#3b82f6;
+  --hh-green:#22c55e;
+  --hh-red:#ef4444;
+  --hh-yellow:#f59e0b;
+}
+
+/* Universal readable dark surfaces. This intentionally targets the remaining old white utility classes. */
+.miniStat,
+.performanceHeroStats > div,
+.recordsBox,
+.recordRow,
+.techTimelineRow,
+.techTimelineDate,
+.techTimelineMain,
+.techTimelineStats,
+.perfRow,
+.performanceTable,
+.developmentScoreCard > div,
+.developmentNarrative,
+.specialtyBox,
+.trendChartCard,
+.coachingPanel,
+.coachingNotes,
+.automatedCoachingNotes,
+.jobMixPanel,
+.auditItem,
+.accessItem,
+.logItem,
+.activityRow,
+.adminRow,
+.adminTableRow,
+.employeeRow,
+.productRow,
+.productionLogRow,
+.timelineRecord,
+.timelineRow,
+.mobileStatCard,
+.card,
+.statCard,
+.metricCard,
+.infoCard,
+.controlCard,
+.editorCard,
+.detailCard{
+  background:linear-gradient(145deg,var(--hh-surface),var(--hh-surface-2)) !important;
+  border:1px solid var(--hh-border) !important;
+  color:var(--hh-text) !important;
+  box-shadow:0 14px 32px rgba(0,0,0,.22) !important;
+}
+
+/* Technician Dashboard redesign / final dark KPI treatment */
+.techDashboard{gap:16px !important;}
+.techHeaderCard{
+  background:linear-gradient(145deg,#111c2e,#0b1424) !important;
+  border:1px solid var(--hh-border) !important;
+  color:var(--hh-text) !important;
+  box-shadow:0 18px 42px rgba(0,0,0,.26) !important;
+}
+.techHeaderCard h2,.techHeaderCard strong{color:#fff !important;}
+.techHeaderCard p{color:var(--hh-muted) !important;}
+.techStatGrid{
+  display:grid !important;
+  grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+  gap:12px !important;
+}
+.miniStat{
+  min-height:88px !important;
+  display:grid !important;
+  align-content:space-between !important;
+  padding:14px 16px !important;
+  border-radius:18px !important;
+  overflow:hidden !important;
+  position:relative !important;
+}
+.miniStat::before{
+  content:"";
+  position:absolute;
+  inset:0 0 auto 0;
+  height:3px;
+  background:linear-gradient(90deg,var(--hh-blue),var(--hh-green));
+  opacity:.95;
+}
+.miniStat:nth-child(2n)::before{background:linear-gradient(90deg,var(--hh-green),#14b8a6);}
+.miniStat:nth-child(3n)::before{background:linear-gradient(90deg,var(--hh-orange),var(--hh-yellow));}
+.miniStat:nth-child(4n)::before{background:linear-gradient(90deg,#8b5cf6,var(--hh-blue));}
+.miniStat span{
+  display:block !important;
+  color:var(--hh-muted) !important;
+  font-size:12px !important;
+  font-weight:950 !important;
+  line-height:1.2 !important;
+  letter-spacing:.03em !important;
+  text-transform:uppercase !important;
+  opacity:1 !important;
+}
+.miniStat strong{
+  display:block !important;
+  margin-top:8px !important;
+  color:#fff !important;
+  font-size:26px !important;
+  font-weight:950 !important;
+  letter-spacing:-.04em !important;
+  opacity:1 !important;
+}
+.recordsBox h3{color:#fff !important;}
+.recordsBox p,.recordsBox span,.recordsBox small{color:var(--hh-muted) !important;opacity:1 !important;}
+.recordsBox strong,.recordRow strong{color:#fff !important;opacity:1 !important;}
+
+/* Performance page: remove remaining white KPI/coaching/job-mix panels */
+.performanceHeroStats div span,
+.developmentScoreCard span,
+.developmentScoreCard p,
+.developmentNarrative p,
+.specialtyBox span,
+.specialtyBox p,
+.trendChartCard span,
+.trendChartCard p,
+.coachingPanel p,
+.coachingNotes p,
+.automatedCoachingNotes p,
+.jobMixPanel p,
+.perfRow span,
+.perfRow small{
+  color:var(--hh-muted) !important;
+  opacity:1 !important;
+  text-shadow:none !important;
+}
+.performanceHeroStats div strong,
+.developmentScoreCard strong,
+.developmentNarrative strong,
+.specialtyBox strong,
+.trendChartCard strong,
+.coachingPanel strong,
+.coachingNotes strong,
+.automatedCoachingNotes strong,
+.jobMixPanel strong,
+.perfRow strong{
+  color:#fff !important;
+  opacity:1 !important;
+}
+
+/* Admin/audit logs: no white log rows */
+.auditItem,.accessItem,.logItem{
+  border-radius:16px !important;
+  padding:14px 16px !important;
+}
+.auditItem *,.accessItem *,.logItem *{
+  color:var(--hh-muted) !important;
+  opacity:1 !important;
+  text-shadow:none !important;
+}
+.auditItem b,.auditItem strong,.accessItem b,.accessItem strong,.logItem b,.logItem strong{
+  color:#fff !important;
+}
+.auditType,.statusMini,.chip,.pill{
+  background:#17243a !important;
+  color:#dbeafe !important;
+  border:1px solid var(--hh-border-2) !important;
+}
+
+/* Shop Pulse final: move color accents away from text, no green behind Strong/100%. */
+.shopPulseCard,
+.dashboardGlanceV13 .shopPulseCard{
+  background:
+    linear-gradient(90deg,#0b1220 0%,#0b1220 28%,#0f172a 42%,#111827 100%) !important;
+  border:1px solid #26364d !important;
+  overflow:hidden !important;
+}
+.shopPulseCard.strong,
+.dashboardGlanceV13 .shopPulseCard.strong{
+  background:
+    radial-gradient(circle at 88% 50%, rgba(34,197,94,.18), transparent 22%),
+    linear-gradient(90deg,#0b1220 0%,#0b1220 31%,rgba(15,23,42,.98) 48%,#0f172a 100%) !important;
+}
+.shopPulseCard.watch,.shopPulseCard.idle,
+.dashboardGlanceV13 .shopPulseCard.watch,.dashboardGlanceV13 .shopPulseCard.idle{
+  background:
+    radial-gradient(circle at 88% 50%, rgba(249,115,22,.18), transparent 22%),
+    linear-gradient(90deg,#0b1220 0%,#0b1220 31%,rgba(15,23,42,.98) 48%,#0f172a 100%) !important;
+}
+.shopPulseCard.critical,
+.dashboardGlanceV13 .shopPulseCard.critical{
+  background:
+    radial-gradient(circle at 88% 50%, rgba(239,68,68,.20), transparent 22%),
+    linear-gradient(90deg,#0b1220 0%,#0b1220 31%,rgba(15,23,42,.98) 48%,#0f172a 100%) !important;
+}
+.shopPulseMain,.shopPulseTitleRow{
+  background:transparent !important;
+  box-shadow:none !important;
+  border:0 !important;
+}
+.shopPulseTitleRow h3,.shopPulseMain h3{
+  color:#fff !important;
+  background:#0b1220 !important;
+  padding-right:10px !important;
+  border-radius:6px !important;
+  text-shadow:none !important;
+}
+.shopPulseTitleRow strong{
+  color:var(--hh-green) !important;
+  background:#0b1220 !important;
+  padding:0 8px !important;
+  border-radius:6px !important;
+  text-shadow:none !important;
+}
+.shopPulseStats div,.managerFocusStrip{
+  background:rgba(17,28,46,.92) !important;
+  border-color:#334761 !important;
+}
+
+/* Tables and rows readability */
+.row.header,.perfHeader,.employeeListHeadV22,.activityHeader,.scheduleHead{
+  background:linear-gradient(90deg,#164e7a,#1d4ed8) !important;
+  color:#fff !important;
+  border-color:#3169aa !important;
+}
+.row:not(.header),.perfRow,.employeeListRowV22,.productionLogRow,.adminTableRow{
+  background:linear-gradient(145deg,#13233a,#0d1728) !important;
+  color:#f8fafc !important;
+}
+.row:not(.header):nth-child(even),.perfRow:nth-child(even),.employeeListRowV22:nth-child(even){
+  background:linear-gradient(145deg,#17243a,#0f1d31) !important;
+}
+.row *,.perfRow *,.employeeListRowV22 *,.productionLogRow *,.adminTableRow *{
+  opacity:1 !important;
+  text-shadow:none !important;
+}
+
+/* Modals and sticky save footers: no white strip behind save buttons */
+.modal,.modalContent,.dialog,.drawer,.employeeDrawerV22{
+  background:linear-gradient(145deg,#111c2e,#0b1424) !important;
+  color:#f8fafc !important;
+  border:1px solid #334761 !important;
+}
+.modalFooter,.dialogFooter,.formFooter,.stickyFooter,.modalActions,.formActions,.editJobActions,.jobEditorFooter{
+  background:#0b1424 !important;
+  border-top:1px solid #2b3b52 !important;
+  box-shadow:none !important;
+}
+
+@media(max-width:980px){
+  .techStatGrid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;}
+}
+@media(max-width:620px){
+  .techStatGrid{grid-template-columns:1fr !important;}
+}
