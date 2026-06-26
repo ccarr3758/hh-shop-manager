@@ -1946,3 +1946,229 @@ button:not(.primary):hover{background:#17243a;border-color:#3b82f6;}
 @media(max-width:1320px){.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(3,minmax(0,1fr));}.dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:minmax(270px,320px) minmax(0,1fr);}}
 @media(max-width:980px){.dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:1fr}.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(3,minmax(0,1fr));}}
 @media(max-width:640px){.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}.page.dashboardPolished.dashboardAtGlance.dashboardGlanceV13{padding:12px 10px 140px;}}
+
+/* v17 readability pass: keep dark mode, restore contrast everywhere */
+:root{
+  --bg:#07101d;
+  --panel:#101a2b;
+  --panel-2:#0d1728;
+  --text:#f8fafc;
+  --muted:#cbd5e1;
+  --line:#2b3b52;
+}
+
+/* Top bar controls must never render as blank white blocks */
+.topActions button:not(.primary),
+.topActions a:not(.primary),
+.topActions .secondary,
+.topActions .ghost,
+.topActions input[type="date"]{
+  background:#0d1728 !important;
+  color:#f8fafc !important;
+  border:1px solid #334761 !important;
+  box-shadow:none !important;
+}
+.topActions button:not(.primary) svg,
+.topActions button:not(.primary) span,
+.topActions button:not(.primary) strong{
+  color:#f8fafc !important;
+  stroke:#f8fafc !important;
+  opacity:1 !important;
+  visibility:visible !important;
+}
+.topActions input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.9;}
+
+/* General dark surface legibility */
+.panel,
+.kpi,
+.foremanCard,
+.scoreCard,
+.modal,
+.adminItem,
+.leader,
+.metric,
+.inlineEditor,
+.jobCard,
+.row,
+.productCard,
+.notificationCard,
+.requestCard,
+.threadCard,
+.threadItem,
+.mobileCard,
+.mobileJobCard,
+.mobilePanel,
+.mobileStatCard,
+.auditCard,
+.comebackCard{
+  color:#f8fafc !important;
+}
+.panel *,
+.kpi *,
+.foremanCard *,
+.scoreCard *,
+.modal *,
+.adminItem *,
+.leader *,
+.metric *,
+.inlineEditor *,
+.jobCard *,
+.row *,
+.productCard *,
+.notificationCard *,
+.requestCard *,
+.threadCard *,
+.threadItem *,
+.mobileCard *,
+.mobileJobCard *,
+.mobilePanel *,
+.mobileStatCard *,
+.auditCard *,
+.comebackCard *{
+  text-shadow:none;
+}
+.panel h1,.panel h2,.panel h3,.panel h4,
+.kpi strong,.metric strong,.row strong,.jobCard h4,
+.mobileCard strong,.mobileJobCard strong,
+.threadCard strong,.threadItem strong{
+  color:#ffffff !important;
+}
+.panel p,.panel small,.panel span,
+.jobCard p,.jobCard small,
+.metric span,.metric small,
+.kpi span,.kpi p,
+.row span,.row small,
+.mobileCard span,.mobileCard small,.mobileCard p,
+.mobileJobCard span,.mobileJobCard small,.mobileJobCard p{
+  color:#cbd5e1 !important;
+}
+
+/* Forms and white native-looking controls */
+input,select,textarea{
+  background:#0d1728 !important;
+  color:#f8fafc !important;
+  border-color:#334761 !important;
+  caret-color:#f8fafc !important;
+}
+input::placeholder,textarea::placeholder{color:#94a3b8 !important;opacity:1;}
+label{color:#e5e7eb !important;}
+button:not(.primary):not(.sidebarButton){
+  background:#111c2e !important;
+  color:#f8fafc !important;
+  border-color:#334761 !important;
+}
+button:not(.primary):not(.sidebarButton) svg{color:#f8fafc !important;stroke:#f8fafc !important;}
+button:not(.primary):not(.sidebarButton):hover{background:#17243a !important;border-color:#3b82f6 !important;}
+
+/* Technician schedule readability */
+.schedule{
+  background:#07101d !important;
+  border-color:#334761 !important;
+}
+.scheduleHead,
+.timeCell{
+  background:#132039 !important;
+  color:#f1f5f9 !important;
+  border-color:#334761 !important;
+  font-weight:950 !important;
+}
+.slot{
+  background:linear-gradient(145deg,#0b1525,#09111f) !important;
+  border-color:#26364d !important;
+}
+.slotBlocked{
+  background:linear-gradient(145deg,#111c2e,#0b1525) !important;
+}
+.miniJob{
+  background:#18263b !important;
+  color:#f8fafc !important;
+  border:1px solid #64748b !important;
+  box-shadow:0 8px 18px rgba(0,0,0,.22) !important;
+  opacity:1 !important;
+}
+.miniJob strong,
+.miniJob span,
+.miniJob small{
+  color:#f8fafc !important;
+  opacity:1 !important;
+  font-weight:850 !important;
+}
+.miniJobContinued{
+  background:#2a3546 !important;
+  border-style:dashed !important;
+  opacity:.92 !important;
+  text-align:center;
+}
+.miniJobContinued small{
+  color:#dbeafe !important;
+  font-weight:950 !important;
+  letter-spacing:.01em;
+}
+.miniJobStart{
+  background:linear-gradient(135deg,#fff7ed,#fed7aa) !important;
+  color:#111827 !important;
+  border-color:#fb923c !important;
+}
+.miniJobStart strong,
+.miniJobStart span,
+.miniJobStart small{
+  color:#111827 !important;
+  text-shadow:none !important;
+}
+.miniJobHelper{
+  background:linear-gradient(135deg,#ffe4e6,#fecdd3) !important;
+  color:#111827 !important;
+  border-color:#fb7185 !important;
+}
+.miniJobHelper strong,
+.miniJobHelper span,
+.miniJobHelper small{color:#111827 !important;}
+.miniJobOverdue{
+  background:linear-gradient(135deg,#7f1d1d,#450a0a) !important;
+  color:#fee2e2 !important;
+  outline:2px solid #ef4444 !important;
+}
+.miniJobOverdue strong,
+.miniJobOverdue span,
+.miniJobOverdue small{color:#fee2e2 !important;}
+.miniJobFinishingSoon{
+  background:linear-gradient(135deg,#78350f,#451a03) !important;
+  color:#fde68a !important;
+  outline:2px solid #f59e0b !important;
+}
+.miniJobFinishingSoon strong,
+.miniJobFinishingSoon span,
+.miniJobFinishingSoon small{color:#fde68a !important;}
+
+/* Live technician board: keep row status obvious without hiding text */
+.availabilityTable{background:#0d1728 !important;border-color:#334761 !important;}
+.availabilityHeader{background:linear-gradient(90deg,#1e5f8d,#1d4ed8) !important;color:#fff !important;}
+.availabilityRow{background:#132039 !important;color:#f8fafc !important;border-color:#334761 !important;}
+.availabilityRow *{color:inherit !important;}
+.availabilityBusy{background:#172a45 !important;color:#eaf2ff !important;}
+.availabilityOffClock{background:#1f2937 !important;color:#cbd5e1 !important;}
+.availabilityAvailable{background:linear-gradient(90deg,#0f5132,#0b3b2d) !important;color:#dcfce7 !important;}
+.availabilityOverdue{background:linear-gradient(90deg,#4c1118,#351019) !important;color:#fecaca !important;border-color:#ef4444 !important;}
+.availabilityOverdue .negativeTime,
+.negativeTime{color:#fca5a5 !important;font-weight:950 !important;}
+.availabilityJobCell small{color:#bfdbfe !important;}
+.availabilityAvailable .availabilityJobCell small{color:#bbf7d0 !important;}
+
+/* Mobile manager cards */
+.phoneHeader,.phoneMain,.app.phoneShell{background:#07101d !important;color:#f8fafc !important;}
+.mobileActionGrid button{background:#17243a !important;color:#f8fafc !important;border:1px solid #334761 !important;}
+.mobileActionGrid .complete{background:#16a34a !important;color:#fff !important;}
+.mobileEmpty{color:#cbd5e1 !important;}
+
+/* Keep warning/info chips readable */
+.pill,.chip,.panelHead span,.shopPulseCard .chip,.dashboardGlanceV13 .panelHead .chip{
+  color:#f8fafc !important;
+  border-color:#334761 !important;
+}
+.dashboardGlanceV13 .dashboardRequestStack .panel:first-child .panelHead .chip,
+button.clear,
+.clearButton{
+  background:#fff7ed !important;
+  color:#c2410c !important;
+  border-color:#fed7aa !important;
+}
