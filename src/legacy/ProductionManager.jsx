@@ -2141,8 +2141,6 @@ function CompactKpiStrip({ jobs, ctx, metrics }) {
     { label: "In Progress", value: inProgress, caption: "Live jobs" },
     { label: "Book Hrs", value: metrics.bookComplete.toFixed(1), caption: "Complete" },
     { label: "Actual Hrs", value: metrics.actualUsed.toFixed(1), caption: "Used" },
-    { label: "Helpers", value: `${metrics.helperBookComplete.toFixed(1)} / ${metrics.helperActualUsed.toFixed(1)}`, caption: "Book / actual" },
-    { label: "Avg Install", value: `${metrics.avgActualTime.toFixed(2)}h`, caption: "Completed" },
     { label: "Efficiency", value: `${Math.round(metrics.efficiency)}%`, caption: "Overall" },
   ];
   if (paused > 0) items.splice(3, 0, { label: "Paused", value: paused, caption: "Needs attention", alert: true });
@@ -2306,13 +2304,15 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
           <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
 
-        <div className="dashboardLiveFull">
-          <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
-            <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
-          </Panel>
-        </div>
+        <div className="dashboardMainWork">
+          <div className="dashboardLiveFull">
+            <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
+              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+            </Panel>
+          </div>
 
-        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+          <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+        </div>
       </div>
 
       <div className="grid two dashboardLowerGrid">
@@ -2407,7 +2407,9 @@ function isWorkingMinute(minute, schedule) {
 }
 
 function getBookMinutes(job) {
-  return Math.max(0, Math.round(Number(job?.book_hours || 0) * 60));
+  // Approved variance extends the job's allowed book time.
+  // This keeps the live board and mobile timing from showing overdue after a manager approves extra time.
+  return Math.max(0, Math.round(getAdjustedBookHours(job) * 60));
 }
 
 function addBookMinutesWithinShop(startTime, bookMinutes, ctx) {
