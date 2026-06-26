@@ -1860,3 +1860,89 @@ button:not(.primary):not(.sidebarButton) {
   .page.dashboardPolished.dashboardAtGlance.dashboardGlanceV13{margin:0;padding:12px 10px 140px;}
   .dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
+
+/* v16 refined dark mode across the whole app: cleaner contrast, less brown, less harsh red */
+:root{
+  --bg:#08111f;
+  --panel:#101a2b;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+  --line:#26364d;
+  --accent:#fb7a21;
+  --accent-dark:#ff9a3d;
+  --green:#22c55e;
+  --yellow:#fbbf24;
+  --red:#fb7185;
+  --shadow:0 24px 60px rgba(0,0,0,.32);
+}
+html,body,#root{background:#07101d;color:#f8fafc;}
+body{background:radial-gradient(circle at 8% -10%,rgba(34,197,94,.10),transparent 30%),radial-gradient(circle at 95% 8%,rgba(59,130,246,.10),transparent 34%),#07101d;color:#f8fafc;}
+main{background:#07101d;}
+.topbar{background:rgba(7,16,29,.92);border-bottom:1px solid #1f2d42;color:#f8fafc;box-shadow:0 18px 40px rgba(0,0,0,.18)}
+.topbar h2{color:#f8fafc;}
+.topActions input,.topActions select,input,select,textarea{background:#0d1728!important;color:#f8fafc!important;border-color:#2a3a52!important;}
+button:not(.primary){background:#111c2e;color:#f8fafc;border-color:#2b3b52;}
+button:not(.primary):hover{background:#17243a;border-color:#3b82f6;}
+.page{background:transparent;}
+.panel,.kpi,.foremanCard,.scoreCard,.modal,.adminItem,.leader,.metric,.inlineEditor,.jobCard,.row,.scheduleHead,.timeCell,.slot{background:linear-gradient(145deg,rgba(16,26,43,.96),rgba(10,18,31,.96));border-color:#26364d;color:#f8fafc;box-shadow:0 20px 48px rgba(0,0,0,.24)}
+.panelHead h3,.jobCard h4,label,.modalHeader h3,.leader strong,.adminItem strong,.row strong{color:#f8fafc;}
+.muted,.panel p,.jobCard p,.metric span,.kpi span,.kpi p,.leader span{color:#94a3b8!important;}
+.row.header,.scheduleHead,.timeCell{background:#132039;color:#cbd5e1;}
+.chips span{background:#111c2e;border-color:#2b3b52;color:#cbd5e1;}
+
+/* Dashboard structure: Pulse top, side action stack, live board, KPIs under live board */
+.page.dashboardPolished.dashboardAtGlance.dashboardGlanceV13{background:transparent;margin:0;padding:18px 22px 60px;}
+.dashboardGlanceV13 .shopPulseCard{background:radial-gradient(circle at 10% 20%,rgba(34,197,94,.20),transparent 30%),linear-gradient(135deg,#07331d 0%,#08111f 58%,#0b1424 100%);border:1px solid #1f3b3a;color:#fff;margin-bottom:14px;box-shadow:0 20px 46px rgba(0,0,0,.30);}
+.dashboardGlanceV13 .shopPulseCard.watch,.dashboardGlanceV13 .shopPulseCard.idle{background:radial-gradient(circle at 10% 20%,rgba(251,191,36,.13),transparent 30%),linear-gradient(135deg,#102033 0%,#08111f 60%,#0b1424 100%);border-color:#2c3b52;}
+.dashboardGlanceV13 .shopPulseCard.critical{background:radial-gradient(circle at 10% 20%,rgba(248,113,113,.16),transparent 30%),linear-gradient(135deg,#2a1118 0%,#08111f 60%,#0b1424 100%);border-color:#553044;}
+.dashboardGlanceV13 .shopPulseStats div{background:#111c2e;border:1px solid #2a3a52;box-shadow:none;}
+.dashboardGlanceV13 .shopPulseStats span,.dashboardGlanceV13 .managerFocusStrip span{color:#cbd5e1;}
+.dashboardGlanceV13 .managerFocusStrip{background:rgba(17,28,46,.82);border:1px solid #2a3a52;}
+.dashboardGlanceV13 .managerFocusStrip b{background:#18263b;color:#f8fafc;border:1px solid #334761;}
+.dashboardGlanceV13 .dashboardCommandGrid{display:grid;grid-template-columns:minmax(285px,330px) minmax(0,1fr);gap:16px;align-items:start;}
+.dashboardGlanceV13 .dashboardMainWork{display:grid;gap:14px;min-width:0;}
+.dashboardGlanceV13 .dashboardRequestStack{display:grid;gap:14px;}
+.dashboardGlanceV13 .dashboardRequestStack .panel,.dashboardGlanceV13 .dashboardMainWork .panel{background:linear-gradient(145deg,rgba(16,26,43,.98),rgba(9,17,30,.98));border:1px solid #26364d;box-shadow:0 22px 44px rgba(0,0,0,.24);}
+.dashboardGlanceV13 .panelHead .chip{background:#13294a;color:#93c5fd;border:1px solid #244a78;}
+.dashboardGlanceV13 .dashboardRequestStack .panel:first-child .panelHead .chip{background:#2b1f10;color:#fed7aa;border-color:#7c4a16;}
+.dashboardGlanceV13 .emptyRequestState,.dashboardGlanceV13 .dashboardMessagesHeader,.dashboardGlanceV13 .dashboardNoNewMessages,.dashboardGlanceV13 .dashboardMessagesBlock .threadCard,.dashboardGlanceV13 .dashboardMessagesBlock .threadItem{background:#0d1728;border:1px solid #26364d;color:#f8fafc;}
+.dashboardGlanceV13 .emptyRequestState strong,.dashboardGlanceV13 .dashboardMessagesHeader strong{color:#f8fafc;}
+.dashboardGlanceV13 .emptyRequestState p,.dashboardGlanceV13 .dashboardMessagesHeader span,.dashboardGlanceV13 .dashboardNoNewMessages{color:#9fb0c7!important;}
+.dashboardGlanceV13 .dashboardMessagesBlock .threadList{max-height:144px;}
+.dashboardGlanceV13 .dashboardLiveFull .liveTechGrid{max-height:330px;overflow:auto;}
+.dashboardGlanceV13 .compactKpiStrip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;grid-column:1/-1;}
+.dashboardGlanceV13 .compactKpi{min-height:72px;padding:10px 12px;border-radius:16px;background:linear-gradient(145deg,#111c2e,#0b1424);border:1px solid #26364d;box-shadow:0 16px 34px rgba(0,0,0,.20);}
+.dashboardGlanceV13 .compactKpi span{color:#cbd5e1;font-size:11px;}
+.dashboardGlanceV13 .compactKpi strong{color:#fff;font-size:23px;margin-top:2px;}
+.dashboardGlanceV13 .compactKpi small{color:#94a3b8;font-size:11px;}
+.dashboardGlanceV13 .compactKpi:nth-child(1){border-color:#2563eb;background:linear-gradient(145deg,rgba(37,99,235,.20),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .compactKpi:nth-child(2){border-color:#16a34a;background:linear-gradient(145deg,rgba(22,163,74,.18),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .compactKpi:nth-child(3){border-color:#f59e0b;background:linear-gradient(145deg,rgba(245,158,11,.16),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .compactKpi:nth-child(4){border-color:#8b5cf6;background:linear-gradient(145deg,rgba(139,92,246,.16),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .compactKpi:nth-child(5){border-color:#14b8a6;background:linear-gradient(145deg,rgba(20,184,166,.16),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .compactKpi:nth-child(6){border-color:#ec4899;background:linear-gradient(145deg,rgba(236,72,153,.16),rgba(11,20,36,.98));}
+.dashboardGlanceV13 .dashboardLowerGrid{display:none!important;}
+
+/* Live board color treatments */
+.availabilityTable{background:#0d1728;border:1px solid #26364d;border-radius:18px;overflow:hidden;color:#f8fafc;}
+.availabilityRow{border-color:#26364d!important;background:#101a2b!important;color:#f8fafc;}
+.availabilityHeader{background:linear-gradient(90deg,#164e7a,#1d4ed8)!important;color:#fff!important;}
+.availabilityBusy{background:#13233a!important;}
+.availabilityAvailable{background:linear-gradient(90deg,rgba(22,101,52,.55),rgba(6,78,59,.35))!important;color:#d1fae5;}
+.availabilityOffClock{background:#151f31!important;color:#94a3b8!important;}
+.availabilityOverdue{background:linear-gradient(90deg,rgba(127,29,29,.72),rgba(69,10,10,.50))!important;color:#fecaca;border-color:#ef4444!important;}
+.availabilityTechName,.availabilityJobCell b{color:inherit;}
+.availabilityJobCell small{color:#93c5fd;}
+.availabilityAvailable .availabilityJobCell small{color:#86efac;}
+.negativeTime{color:#fecaca!important;}
+
+/* Dark mode for message screens, production log, admin lists, mobile manager, and forms */
+.threadCard,.threadItem,.messageBubble,.notificationCard,.requestCard,.productCard,.comebackCard,.auditCard,.mobileCard,.mobileJobCard,.mobileStatCard,.mobilePanel{background:#101a2b!important;border-color:#26364d!important;color:#f8fafc!important;}
+.threadCard strong,.threadItem strong,.notificationCard strong,.requestCard strong,.productCard strong,.comebackCard strong,.auditCard strong,.mobileCard strong,.mobileJobCard strong{color:#f8fafc!important;}
+.messageBubble.inbound{background:#17243a!important;color:#f8fafc!important;}
+.messageBubble.outbound{background:#1d4ed8!important;color:#fff!important;}
+.table,.adminList,.leaderList,.jobList{color:#f8fafc;}
+::-webkit-scrollbar{width:12px;height:12px}::-webkit-scrollbar-track{background:#07101d}::-webkit-scrollbar-thumb{background:#334155;border-radius:999px;border:3px solid #07101d}::-webkit-scrollbar-thumb:hover{background:#475569}
+@media(max-width:1320px){.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(3,minmax(0,1fr));}.dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:minmax(270px,320px) minmax(0,1fr);}}
+@media(max-width:980px){.dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:1fr}.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media(max-width:640px){.dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}.page.dashboardPolished.dashboardAtGlance.dashboardGlanceV13{padding:12px 10px 140px;}}

@@ -3245,16 +3245,17 @@ function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
 
     const addedHours = roundHours(minutes / 60);
     const previousBookHours = Number(job.book_hours || 0);
-    const nextBookHours = roundHours(previousBookHours + addedHours);
+    const previousVarianceHours = Number(job.approved_variance_hours || 0);
+    const nextVarianceHours = roundHours(previousVarianceHours + addedHours);
+    const nextBookHours = previousBookHours;
     const noteLine = `Roadblock extension approved: +${minutes} min by ${access?.fullName || access?.email || access?.role || "manager"}. Tech requested +${requestedMinutes} min. Reason: ${metadata.reason || "No reason recorded"}${managerNote ? `. Manager note: ${managerNote}` : ""}`;
 
     const { error: jobError } = await supabase
       .from("jobs")
       .update({
-        book_hours: nextBookHours,
         notes: `${job.notes || ""}
 ${noteLine}`.trim(),
-        approved_variance_hours: roundHours(Number(job.approved_variance_hours || 0) + addedHours),
+        approved_variance_hours: nextVarianceHours,
         approved_variance_reason: metadata.reason || job.approved_variance_reason || "Roadblock extension",
         approved_variance_approved_by: access?.fullName || access?.email || access?.role || "Manager",
         updated_at: new Date().toISOString(),
@@ -6848,7 +6849,9 @@ async function fetchJobs(companyId) {
 
 
 function getAdjustedBookHours(job) {
-  return Number(job?.book_hours || 0) + Number(job?.approved_variance_hours || 0);
+  const baseBookHours = Number(job?.book_hours || 0);
+  const varianceHours = Number(job?.approved_variance_hours || 0);
+  return Math.max(0, baseBookHours + varianceHours);
 }
 
 function getActiveElapsedHours(job, nowDate = new Date(), fallbackStart = null) {
