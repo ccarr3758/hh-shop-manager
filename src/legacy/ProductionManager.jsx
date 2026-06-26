@@ -613,7 +613,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -2235,7 +2235,28 @@ function CapacityForecastPanel({ allJobs, ctx, selectedDate }) {
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload }) {
+function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages }) {
+  const threads = getVisibleThreads(ctx, access);
+  const unreadThreads = threads.filter((thread) => getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at));
+  const permissionLabel = getNotificationPermissionLabel();
+  return (
+    <Panel title="Messages" chip={unreadThreads.length ? `${unreadThreads.length} unread` : "Clear"}>
+      <div className="dashboardMessagesBlock">
+        <div className="dashboardMessagesHeader">
+          <div>
+            <strong>{unreadThreads.length ? "New messages waiting" : "No unread messages"}</strong>
+            <span>{permissionLabel}</span>
+          </div>
+          <button className="primary" onClick={onOpenMessages}><MessageSquare size={15} /> Open</button>
+        </div>
+        <DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact onSelect={() => onOpenMessages?.()} />
+        <button className="wide" onClick={() => enableHhNotifications(ctx, access)}>Enable Notifications</button>
+      </div>
+    </Panel>
+  );
+}
+
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const requests = buildDashboardRequestItems(ctx, access);
 
@@ -2244,7 +2265,10 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
       <ShopPulseCard jobs={jobs} allJobs={allJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} requestCount={requests.length} />
 
       <div className="dashboardTopGrid">
-        <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
+        <div className="dashboardRequestStack">
+          <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
+          <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} />
+        </div>
         <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
           <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
         </Panel>
@@ -4825,6 +4849,16 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
   const [recipientId, setRecipientId] = useState(initialRecipientId || "");
   const [newBody, setNewBody] = useState("");
   const recipients = getMessageRecipients(ctx, access);
+  const visibleThreadIdsKey = visibleThreads.map((thread) => thread.id).join(",");
+
+  useEffect(() => {
+    if (!visibleThreads.length) return;
+    const unreadExists = visibleThreads.some((thread) => getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at));
+    if (!unreadExists) return;
+    markVisibleThreadMessagesRead(ctx, access, visibleThreads).then((changed) => {
+      if (changed) reload?.();
+    });
+  }, [visibleThreadIdsKey, access?.userId]);
 
   useEffect(() => {
     if (!selectedThreadId && visibleThreads[0]?.id) setSelectedThreadId(visibleThreads[0].id);
@@ -4845,7 +4879,7 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
     try {
       const existing = findDirectThread(ctx, access.userId, recipientId);
       const thread = existing || await createDirectThread(ctx, access, recipientId, newBody.trim());
-      if (existing) await sendThreadMessage(ctx, access, existing.id, newBody.trim());
+      if (existing) await sendThreadMessage(ctx, access, existing.id, newBody.trim(), false, recipientId);
       setSelectedThreadId(thread.id);
       setNewBody("");
       setRecipientId("");
@@ -4875,7 +4909,7 @@ function DirectMessageThread({ thread, ctx, access, reload }) {
   async function send() {
     if (!body.trim()) return;
     try {
-      await sendThreadMessage(ctx, access, thread.id, body.trim());
+      await sendThreadMessage(ctx, access, thread.id, body.trim(), false, getThreadPartnerUserId(thread, access));
       setBody("");
       await reload?.();
     } catch (error) {
@@ -4890,15 +4924,26 @@ async function createDirectThread(ctx, access, recipientId, preview) {
   const payload = { company_id: ctx.company.id, participant_a_user_id: access.userId, participant_b_user_id: recipientId, created_by_user_id: access.userId, last_message_at: now, last_message_preview: preview.slice(0, 160), created_at: now, updated_at: now };
   const { data, error } = await supabase.from("shop_message_threads").insert(payload).select().single();
   if (error) throw error;
-  await sendThreadMessage(ctx, access, data.id, preview, true);
+  await sendThreadMessage(ctx, access, data.id, preview, true, recipientId);
   return data;
 }
 
-async function sendThreadMessage(ctx, access, threadId, body, skipThreadUpdate = false) {
+async function sendThreadMessage(ctx, access, threadId, body, skipThreadUpdate = false, recipientUserId = null) {
   const now = new Date().toISOString();
   const { error } = await supabase.from("shop_thread_messages").insert({ company_id: ctx.company.id, thread_id: threadId, sender_user_id: access.userId, body, created_at: now });
   if (error) throw error;
   if (!skipThreadUpdate) await supabase.from("shop_message_threads").update({ last_message_at: now, last_message_preview: body.slice(0, 160), updated_at: now }).eq("id", threadId);
+
+  const thread = (ctx.messageThreads || []).find((item) => item.id === threadId);
+  const targetUserId = recipientUserId || (thread ? getThreadPartnerUserId(thread, access) : null);
+  if (targetUserId) {
+    await createAppNotification(ctx, access, {
+      type: "direct_message",
+      title: "New Message",
+      body: `${access?.fullName || "Someone"}: ${body.slice(0, 110)}`,
+      metadata: { recipient_user_id: targetUserId, thread_id: threadId },
+    });
+  }
 }
 
 function getVisibleThreads(ctx, access) {
@@ -4911,6 +4956,53 @@ function findDirectThread(ctx, userA, userB) { return (ctx.messageThreads || [])
 function getMessageRecipients(ctx, access) { return (ctx.userProfiles || []).filter((u) => u.active !== false && u.id && u.id !== access?.userId); }
 function getProfileName(ctx, userId) { const p = (ctx.userProfiles || []).find((u) => u.id === userId); return p?.full_name || p?.email || "User"; }
 function getThreadPartnerName(ctx, thread, access) { const otherId = thread.participant_a_user_id === access?.userId ? thread.participant_b_user_id : thread.participant_a_user_id; return getProfileName(ctx, otherId); }
+function getThreadPartnerUserId(thread, access) {
+  if (!thread || !access?.userId) return null;
+  return thread.participant_a_user_id === access.userId ? thread.participant_b_user_id : thread.participant_a_user_id;
+}
+
+function userCanSeeThread(thread, access) {
+  if (!thread || !access?.userId) return false;
+  return thread.participant_a_user_id === access.userId || thread.participant_b_user_id === access.userId;
+}
+
+async function markVisibleThreadMessagesRead(ctx, access, threads) {
+  if (!supabase || !access?.userId || !threads?.length) return false;
+  const threadIds = threads.map((thread) => thread.id).filter(Boolean);
+  if (!threadIds.length) return false;
+  const unreadIds = (ctx.threadMessages || [])
+    .filter((message) => threadIds.includes(message.thread_id) && message.sender_user_id !== access.userId && !message.read_at)
+    .map((message) => message.id)
+    .filter(Boolean);
+  if (!unreadIds.length) return false;
+  const { error } = await supabase
+    .from("shop_thread_messages")
+    .update({ read_at: new Date().toISOString() })
+    .in("id", unreadIds);
+  if (error) {
+    console.warn("Message read receipt update failed", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function notifyRealtimeDirectMessage(message, state, access) {
+  if (!message || !access?.userId || message.sender_user_id === access.userId) return;
+  let thread = (state.messageThreads || []).find((item) => item.id === message.thread_id);
+  if (!thread && supabase && message.thread_id) {
+    const { data } = await supabase.from("shop_message_threads").select("*").eq("id", message.thread_id).maybeSingle();
+    thread = data || null;
+  }
+  if (!userCanSeeThread(thread, access)) return;
+  const key = `direct-message-${message.id || message.created_at}`;
+  notifyUser(message.body || "New message received.", {
+    title: `Message from ${getProfileName(makeContext(state), message.sender_user_id)}`,
+    important: true,
+    tag: key,
+    requireInteraction: false,
+  });
+}
+
 
 function Admin({ ctx, reload, access, onOpenMessages }) {
   return (
@@ -6633,6 +6725,8 @@ async function sendHhWebPush(notification) {
 }
 
 function canReceiveNotification(notification, access) {
+  const targetUserId = notification?.metadata?.recipient_user_id || notification?.metadata?.recipientUserId || null;
+  if (targetUserId && targetUserId !== access?.userId) return false;
   const role = normalizeRole(access?.role);
   const audience = (notification.audience_roles || []).map(normalizeRole);
   const roleMatch = !audience.length || audience.includes(role);
@@ -7842,6 +7936,7 @@ async function registerHhPushSubscription(ctx, access) {
       subscription: subscription.toJSON(),
       role: normalizeRole(access?.role),
       technician_id: access?.technicianId || null,
+      user_profile_id: access?.userId || null,
       user_email: access?.email || null,
       user_name: access?.fullName || access?.email || access?.role || null,
       user_agent: navigator.userAgent || null,

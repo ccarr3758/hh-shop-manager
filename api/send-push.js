@@ -12,6 +12,8 @@ function normalizeRole(role) {
 }
 
 function shouldReceive(subscription, notification) {
+  const targetUserId = notification?.metadata?.recipient_user_id || notification?.metadata?.recipientUserId || null;
+  if (targetUserId && String(subscription.user_profile_id || "") !== String(targetUserId)) return false;
   const role = normalizeRole(subscription.role);
   const audience = Array.isArray(notification.audience_roles)
     ? notification.audience_roles.map(normalizeRole)
@@ -63,7 +65,7 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const { data: subscriptions, error } = await supabase
     .from("web_push_subscriptions")
-    .select("id, endpoint, subscription, role, technician_id")
+    .select("id, endpoint, subscription, role, technician_id, user_profile_id")
     .eq("company_id", notification.company_id);
 
   if (error) return res.status(500).json({ error: error.message });

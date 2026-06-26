@@ -1540,3 +1540,13 @@ button:not(.primary):not(.sidebarButton) {
   .employeeDetailStats{grid-template-columns:1fr;}
   .employeeDrawer{left:14px; right:14px; top:70px; width:auto;}
 }
+
+/* v9 dashboard message visibility */
+.dashboardRequestStack{display:grid;gap:18px;align-items:start}
+.dashboardMessagesBlock{display:grid;gap:12px}
+.dashboardMessagesHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:#f8fafc}
+.dashboardMessagesHeader strong{display:block;font-size:15px;color:#0f172a}
+.dashboardMessagesHeader span{display:block;margin-top:3px;font-size:12px;font-weight:800;color:#64748b;line-height:1.35}
+.dashboardMessagesBlock .threadList{max-height:240px;overflow:auto;padding-right:4px}
+.dashboardMessagesBlock .wide{width:100%;justify-content:center}
+@media(max-width:1300px){.dashboardRequestStack{grid-template-columns:1fr}}

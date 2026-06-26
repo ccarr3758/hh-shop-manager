@@ -1,4 +1,4 @@
-const CACHE_VERSION = "mobile-v6-ios-web-push-payload-2026-06-22";
+const CACHE_VERSION = "mobile-v9-dashboard-messages-push-2026-06-26";
 const CACHE_NAME = `hh-shop-manager-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/",
@@ -90,7 +90,7 @@ self.addEventListener("push", (event) => {
     tag: data.tag || "hh-production-push",
     renotify: true,
     requireInteraction: Boolean(data.requireInteraction),
-    data: data.url || "/",
+    data: data.url || (data.type === "direct_message" ? "/#Messages" : "/"),
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
