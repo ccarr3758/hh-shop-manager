@@ -136,6 +136,24 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     }
   }
 
+  function markThreadReadNow(threadIdOrIds) {
+    const threadIds = Array.isArray(threadIdOrIds) ? threadIdOrIds.filter(Boolean) : [threadIdOrIds].filter(Boolean);
+    if (!threadIds.length || !access?.userId) return;
+
+    setState((current) => ({
+      ...current,
+      threadMessages: (current.threadMessages || []).map((message) =>
+        threadIds.includes(message.thread_id) && message.sender_user_id !== access.userId && !message.read_at
+          ? { ...message, read_at: new Date().toISOString() }
+          : message
+      ),
+    }));
+
+    markThreadMessagesRead(makeContext(state), access, threadIds).catch((error) => {
+      console.warn("Message read receipt update failed", error?.message || error);
+    });
+  }
+
   async function loadAll(options = {}) {
     const preserveScroll = options?.preserveScroll !== false;
     const showBlockingLoader = !initialLoadComplete.current || options?.showLoader === true;
@@ -611,9 +629,9 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
-        {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
+        {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} markThreadReadNow={markThreadReadNow} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} markThreadReadNow={markThreadReadNow} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -2235,7 +2253,7 @@ function CapacityForecastPanel({ allJobs, ctx, selectedDate }) {
   );
 }
 
-function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages }) {
+function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages, markThreadReadNow }) {
   const threads = getVisibleThreads(ctx, access);
   const unreadThreads = threads.filter((thread) => getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at));
   const permissionLabel = getNotificationPermissionLabel();
@@ -2249,14 +2267,14 @@ function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages }) {
           </div>
           <button className="primary" onClick={onOpenMessages}><MessageSquare size={15} /> Open</button>
         </div>
-        <DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact onSelect={() => onOpenMessages?.()} />
+        <DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact onSelect={(threadId) => { markThreadReadNow?.(threadId); onOpenMessages?.(); }} />
         <button className="wide" onClick={() => enableHhNotifications(ctx, access)}>Enable Notifications</button>
       </div>
     </Panel>
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages }) {
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages, markThreadReadNow }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const requests = buildDashboardRequestItems(ctx, access);
 
@@ -2264,17 +2282,19 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
     <section className="page dashboardPolished">
       <ShopPulseCard jobs={jobs} allJobs={allJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} requestCount={requests.length} />
 
-      <div className="dashboardTopGrid">
+      <div className="dashboardCommandGrid">
         <div className="dashboardRequestStack">
           <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
-          <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} />
+          <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
+        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+      </div>
+
+      <div className="dashboardLiveFull">
         <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
           <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
         </Panel>
       </div>
-
-      <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
 
       <div className="grid two dashboardLowerGrid">
         <Panel title="Jobs In Progress" chip="Open jobs">
@@ -4842,7 +4862,7 @@ function MessagesAdminPanel({ ctx, access, reload }) {
   return <Panel title="Message Inbox" chip={`${unreadCount} unread`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact /></Panel>;
 }
 
-function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipientConsumed }) {
+function MessagesCenter({ ctx, access, reload, markThreadReadNow, initialRecipientId = "", onRecipientConsumed }) {
   const visibleThreads = getVisibleThreads(ctx, access);
   const [selectedThreadId, setSelectedThreadId] = useState(visibleThreads[0]?.id || "");
   const selectedThread = visibleThreads.find((t) => t.id === selectedThreadId) || visibleThreads[0] || null;
@@ -4856,19 +4876,10 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
     .join(",");
 
   useEffect(() => {
-    if (!visibleThreads.length || !unreadMessageIdsKey) return;
-    markVisibleThreadMessagesRead(ctx, access, visibleThreads).then((changed) => {
-      if (changed) reload?.({ preserveScroll: true });
-    });
-  }, [visibleThreadIdsKey, unreadMessageIdsKey, access?.userId]);
-
-  useEffect(() => {
     if (!selectedThread?.id) return;
     const hasUnreadInSelectedThread = getThreadMessages(ctx, selectedThread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at);
     if (!hasUnreadInSelectedThread) return;
-    markThreadMessagesRead(ctx, access, selectedThread.id).then((changed) => {
-      if (changed) reload?.({ preserveScroll: true });
-    });
+    markThreadReadNow?.(selectedThread.id);
   }, [selectedThread?.id, unreadMessageIdsKey, access?.userId]);
 
   useEffect(() => {
@@ -4903,7 +4914,7 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
   return <section className="page messagesPage"><div className="adminHero"><div><p className="eyebrow">Direct Messages</p><h3>Messages</h3><p>Send a message to a specific user. It stays in a shared thread on mobile and desktop.</p></div></div>
     <div className="messagesLayout directMessagesLayout">
       <Panel title="New Message" chip="Direct"><div className="messageComposer"><label>Send To<select value={recipientId} onChange={(e) => setRecipientId(e.target.value)}><option value="">Choose user...</option>{recipients.map((r) => <option key={r.id} value={r.id}>{r.full_name || r.email || r.id} — {formatRoleLabel(r.role)}</option>)}</select></label><label className="fullWidth">Message<textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="Type your message..." /></label><button className="primary wide" onClick={startThread}><MessageSquare size={16} /> Send</button></div></Panel>
-      <Panel title="Threads" chip={`${visibleThreads.length}`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} selectedThreadId={selectedThread?.id} onSelect={setSelectedThreadId} /></Panel>
+      <Panel title="Threads" chip={`${visibleThreads.length}`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} selectedThreadId={selectedThread?.id} onSelect={(threadId) => { setSelectedThreadId(threadId); markThreadReadNow?.(threadId); }} /></Panel>
       <Panel title="Message Thread" chip={selectedThread ? getThreadPartnerName(ctx, selectedThread, access) : "Select"}>{selectedThread ? <DirectMessageThread thread={selectedThread} ctx={ctx} access={access} reload={reload} /> : <p className="muted">No message thread selected.</p>}</Panel>
     </div>
   </section>;

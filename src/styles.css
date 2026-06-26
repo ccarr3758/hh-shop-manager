@@ -1550,3 +1550,51 @@ button:not(.primary):not(.sidebarButton) {
 .dashboardMessagesBlock .threadList{max-height:240px;overflow:auto;padding-right:4px}
 .dashboardMessagesBlock .wide{width:100%;justify-content:center}
 @media(max-width:1300px){.dashboardRequestStack{grid-template-columns:1fr}}
+
+/* v11 dashboard command layout: messages/requests + metrics above live shop */
+.dashboardCommandGrid{
+  display:grid;
+  grid-template-columns:minmax(280px,340px) minmax(520px,1fr);
+  gap:18px;
+  align-items:start;
+  margin-bottom:18px;
+}
+.dashboardCommandGrid .compactKpiStrip{
+  grid-template-columns:repeat(4,minmax(120px,1fr));
+  margin-bottom:0;
+}
+.dashboardCommandGrid .compactKpi{
+  min-height:106px;
+}
+.dashboardLiveFull{
+  margin-bottom:18px;
+}
+.dashboardLiveFull .liveTechGrid{
+  max-height:360px;
+  overflow:auto;
+}
+.dashboardRequestStack .panelBody{
+  padding-bottom:14px;
+}
+.dashboardRequestStack .emptyRequestState{
+  padding:12px 14px;
+  border-radius:14px;
+}
+.dashboardRequestStack .emptyRequestState strong{
+  font-size:15px;
+}
+.dashboardRequestStack .emptyRequestState p{
+  font-size:12px;
+  margin:6px 0 0;
+  line-height:1.35;
+}
+.dashboardMessagesBlock .threadList{
+  max-height:180px;
+}
+@media(max-width:1300px){
+  .dashboardCommandGrid{grid-template-columns:1fr;}
+  .dashboardCommandGrid .compactKpiStrip{grid-template-columns:repeat(4,minmax(0,1fr));}
+}
+@media(max-width:760px){
+  .dashboardCommandGrid .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
