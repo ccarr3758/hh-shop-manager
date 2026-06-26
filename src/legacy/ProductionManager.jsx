@@ -225,7 +225,6 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         restoreViewportPosition(scrollSnapshot, () => lastRestoreTick.current === restoreId);
       }
     } catch (err) {
-    } catch (err) {
       console.error(err);
       setCloudError(err.message || "Failed to load Supabase data.");
     } finally {
