@@ -4850,15 +4850,26 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
   const [newBody, setNewBody] = useState("");
   const recipients = getMessageRecipients(ctx, access);
   const visibleThreadIdsKey = visibleThreads.map((thread) => thread.id).join(",");
+  const unreadMessageIdsKey = (ctx.threadMessages || [])
+    .filter((message) => visibleThreads.some((thread) => thread.id === message.thread_id) && message.sender_user_id !== access?.userId && !message.read_at)
+    .map((message) => message.id)
+    .join(",");
 
   useEffect(() => {
-    if (!visibleThreads.length) return;
-    const unreadExists = visibleThreads.some((thread) => getThreadMessages(ctx, thread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at));
-    if (!unreadExists) return;
+    if (!visibleThreads.length || !unreadMessageIdsKey) return;
     markVisibleThreadMessagesRead(ctx, access, visibleThreads).then((changed) => {
-      if (changed) reload?.();
+      if (changed) reload?.({ preserveScroll: true });
     });
-  }, [visibleThreadIdsKey, access?.userId]);
+  }, [visibleThreadIdsKey, unreadMessageIdsKey, access?.userId]);
+
+  useEffect(() => {
+    if (!selectedThread?.id) return;
+    const hasUnreadInSelectedThread = getThreadMessages(ctx, selectedThread.id).some((message) => message.sender_user_id !== access?.userId && !message.read_at);
+    if (!hasUnreadInSelectedThread) return;
+    markThreadMessagesRead(ctx, access, selectedThread.id).then((changed) => {
+      if (changed) reload?.({ preserveScroll: true });
+    });
+  }, [selectedThread?.id, unreadMessageIdsKey, access?.userId]);
 
   useEffect(() => {
     if (!selectedThreadId && visibleThreads[0]?.id) setSelectedThreadId(visibleThreads[0].id);
@@ -4967,8 +4978,13 @@ function userCanSeeThread(thread, access) {
 }
 
 async function markVisibleThreadMessagesRead(ctx, access, threads) {
-  if (!supabase || !access?.userId || !threads?.length) return false;
-  const threadIds = threads.map((thread) => thread.id).filter(Boolean);
+  const threadIds = (threads || []).map((thread) => thread.id).filter(Boolean);
+  return markThreadMessagesRead(ctx, access, threadIds);
+}
+
+async function markThreadMessagesRead(ctx, access, threadIdOrIds) {
+  if (!supabase || !access?.userId) return false;
+  const threadIds = Array.isArray(threadIdOrIds) ? threadIdOrIds.filter(Boolean) : [threadIdOrIds].filter(Boolean);
   if (!threadIds.length) return false;
   const unreadIds = (ctx.threadMessages || [])
     .filter((message) => threadIds.includes(message.thread_id) && message.sender_user_id !== access.userId && !message.read_at)
