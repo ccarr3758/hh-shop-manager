@@ -80,6 +80,7 @@ function getNavIcon(name) {
 
 export default function ProductionManager({ authProfile, onSignOut }) {
   const [view, setView] = useState(readStoredActiveView);
+  const [messageRecipientId, setMessageRecipientId] = useState("");
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [state, setState] = useState(emptyState());
@@ -582,7 +583,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
         )}
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
-        {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} />}
+        {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
         {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
@@ -592,7 +593,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Technicians" && <Technicians jobs={visibleJobs} ctx={ctx} />}
         {view === "Tech Clock" && <TechnicianClock ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
         {view === "Products" && <Products ctx={ctx} reload={loadAll} />}
-        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} access={access} />}
+        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} access={access} onOpenMessages={(userId) => { setMessageRecipientId(userId); setView("Messages"); }} />}
         {view === "Cloud Status" && <CloudStatus state={state} />}
 
         {showNewJob && <NewJobModal onClose={() => setShowNewJob(false)} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -4479,7 +4480,7 @@ function AccessLogPanel({ ctx }) {
 }
 
 
-function EmployeeManagement({ ctx, access, reload }) {
+function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4665,7 +4666,7 @@ function EmployeeManagement({ ctx, access, reload }) {
                   <div className="employeeActivityCell"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
                   <span>{employee.activity.actionsToday}</span>
                   <span className={employee.unread ? "messageCount hot" : "messageCount"}>{employee.unread}</span>
-                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button></span>
+                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => onOpenMessages?.(employee.id)}>Message</button></span>
                 </div>
               ))}
               {!filteredEmployees.length && !error && <p className="muted">No employees match that filter.</p>}
@@ -4685,6 +4686,7 @@ function EmployeeManagement({ ctx, access, reload }) {
                 <div className="employeeDetailActions">
                   <button className="primary" onClick={() => setDraft({ ...selectedEmployee, password: "" })}>Edit Employee</button>
                   <button onClick={() => setPasswordDraft({ ...selectedEmployee, password: "" })}>Reset Password</button>
+                  <button onClick={() => onOpenMessages?.(selectedEmployee.id)}>Send Message</button>
                   <button onClick={() => toggleActive(selectedEmployee)}>{selectedEmployee.active ? "Deactivate" : "Activate"}</button>
                 </div>
               </> : <p className="muted">Select an employee.</p>}
@@ -4733,11 +4735,11 @@ function MessagesAdminPanel({ ctx, access, reload }) {
   return <Panel title="Message Inbox" chip={`${unreadCount} unread`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} compact /></Panel>;
 }
 
-function MessagesCenter({ ctx, access, reload }) {
+function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipientConsumed }) {
   const visibleThreads = getVisibleThreads(ctx, access);
   const [selectedThreadId, setSelectedThreadId] = useState(visibleThreads[0]?.id || "");
   const selectedThread = visibleThreads.find((t) => t.id === selectedThreadId) || visibleThreads[0] || null;
-  const [recipientId, setRecipientId] = useState("");
+  const [recipientId, setRecipientId] = useState(initialRecipientId || "");
   const [newBody, setNewBody] = useState("");
   const recipients = getMessageRecipients(ctx, access);
 
@@ -4806,7 +4808,7 @@ function getMessageRecipients(ctx, access) { return (ctx.userProfiles || []).fil
 function getProfileName(ctx, userId) { const p = (ctx.userProfiles || []).find((u) => u.id === userId); return p?.full_name || p?.email || "User"; }
 function getThreadPartnerName(ctx, thread, access) { const otherId = thread.participant_a_user_id === access?.userId ? thread.participant_b_user_id : thread.participant_a_user_id; return getProfileName(ctx, otherId); }
 
-function Admin({ ctx, reload, access }) {
+function Admin({ ctx, reload, access, onOpenMessages }) {
   return (
     <section className="page">
       <div className="adminHero">
@@ -4815,7 +4817,7 @@ function Admin({ ctx, reload, access }) {
         <p>Technicians, categories, statuses, delay reasons, labor rates, and shop hours are stored in Supabase.</p>
       </div>
 
-      <EmployeeManagement ctx={ctx} access={access} reload={reload} />
+      <EmployeeManagement ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} />
       <EmployeeActivityPanel ctx={ctx} />
       <MessagesAdminPanel ctx={ctx} access={access} reload={reload} />
 
