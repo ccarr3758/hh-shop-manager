@@ -119,6 +119,20 @@ export default function ProductionManager({ authProfile, onSignOut }) {
 
   const pwaInstall = usePwaInstall();
 
+  function openView(nextView) {
+    if (!nextView) return;
+    setView(nextView);
+    writeStoredActiveView(nextView);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+    }
+  }
+
+  function openMessagesForUser(userId = "") {
+    if (userId) setMessageRecipientId(userId);
+    openView("Messages");
+  }
+
   async function loadAll() {
     setLoading(true);
     setCloudError("");
@@ -345,6 +359,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           auditLogs,
           damagePhotos,
           notifications,
+          messageThreads,
+          threadMessages,
         ] = await Promise.all([
           fetchJobs(companyId),
           fetchTable("job_products", companyId),
@@ -354,6 +370,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           fetchOptionalAuditLogs(companyId),
           fetchOptionalDamagePhotos(companyId),
           fetchOptionalNotifications(companyId),
+          fetchOptionalMessageThreads(companyId),
+          fetchOptionalThreadMessages(companyId),
         ]);
         if (cancelled) return;
 
@@ -386,6 +404,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           auditLogs: auditLogs || current.auditLogs,
           damagePhotos: damagePhotos || current.damagePhotos,
           notifications: notifications || [],
+          messageThreads: messageThreads || current.messageThreads,
+          threadMessages: threadMessages || current.threadMessages,
         }));
       } catch (error) {
         console.warn("Live refresh failed", error);
@@ -514,7 +534,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                       <button
                         key={name}
                         className={`sidebarButton ${view === name ? "active" : ""}`}
-                        onClick={() => setView(name)}
+                        onClick={() => openView(name)}
                       >
                         <Icon size={18} />
                         <span>{name}</span>
@@ -585,7 +605,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => setView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -593,7 +613,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Technicians" && <Technicians jobs={visibleJobs} ctx={ctx} />}
         {view === "Tech Clock" && <TechnicianClock ctx={ctx} reload={loadAll} selectedDate={selectedDate} />}
         {view === "Products" && <Products ctx={ctx} reload={loadAll} />}
-        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} access={access} onOpenMessages={(userId) => { setMessageRecipientId(userId); setView("Messages"); }} />}
+        {view === "Admin" && <Admin ctx={ctx} reload={loadAll} access={access} onOpenMessages={openMessagesForUser} />}
         {view === "Cloud Status" && <CloudStatus state={state} />}
 
         {showNewJob && <NewJobModal onClose={() => setShowNewJob(false)} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -633,7 +653,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
                   <button
                     key={name}
                     className={view === name ? "active" : ""}
-                    onClick={() => setView(name)}
+                    onClick={() => openView(name)}
                     aria-label={badgeCount ? `${label}, ${badgeCount} unread` : label}
                     title={label}
                   >
@@ -785,11 +805,15 @@ function MobileStyles() {
       .techClockRow b { color: #0f172a; }
       .techClockActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       @media (max-width: 768px) {
-        html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; overscroll-behavior-y: none; }
-        body { background: #070d1c; -webkit-tap-highlight-color: transparent; }
+        html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; }
+        body { background: #070d1c; -webkit-tap-highlight-color: transparent; touch-action: pan-y; }
         button, input, select, textarea { font-size: 16px; }
-        .app.phoneShell { display: block !important; width: 100%; min-height: 100vh; background: #070d1c; }
-        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(138px + env(safe-area-inset-bottom)) !important; margin: 0 !important; }
+        button, a, input, select, textarea, label, [role="button"] { touch-action: manipulation; }
+        .app.phoneShell { display: block !important; width: 100%; min-height: 100dvh; background: #070d1c; overflow-x: hidden; overflow-y: visible; touch-action: pan-y; }
+        .phoneMain { width: 100% !important; min-width: 0 !important; padding: 0 0 calc(138px + env(safe-area-inset-bottom)) !important; margin: 0 !important; overflow-x: hidden; overflow-y: visible; touch-action: pan-y; }
+        .phoneMain, .mobileApp, .mobileDashScreen, .page, .panel, main, section { touch-action: pan-y; }
+        .mobileTabs, .table, .performanceTable, .availabilityTable, .schedule, .threadMessages { -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+        .modalBackdrop[hidden], .drawerBackdrop[hidden], .mobileOverlay.closed, .drawerBackdrop.closed { pointer-events: none !important; }
         .phoneHeader { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 14px 10px; background: rgba(7, 13, 28, .96); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(255,255,255,.08); }
         .phoneHeader h2 { margin: 0; color: #fff; font-size: 21px; line-height: 1.1; }
         .phoneHeaderLogo { display: block; width: 100px; max-height: 48px; object-fit: contain; margin: 0 0 4px; border-radius: 8px; }
@@ -4666,7 +4690,7 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
                   <div className="employeeActivityCell"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
                   <span>{employee.activity.actionsToday}</span>
                   <span className={employee.unread ? "messageCount hot" : "messageCount"}>{employee.unread}</span>
-                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => onOpenMessages?.(employee.id)}>Message</button></span>
+                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button type="button" onClick={() => onOpenMessages?.(employee.id)}>Message</button></span>
                 </div>
               ))}
               {!filteredEmployees.length && !error && <p className="muted">No employees match that filter.</p>}
@@ -4686,7 +4710,7 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
                 <div className="employeeDetailActions">
                   <button className="primary" onClick={() => setDraft({ ...selectedEmployee, password: "" })}>Edit Employee</button>
                   <button onClick={() => setPasswordDraft({ ...selectedEmployee, password: "" })}>Reset Password</button>
-                  <button onClick={() => onOpenMessages?.(selectedEmployee.id)}>Send Message</button>
+                  <button type="button" onClick={() => onOpenMessages?.(selectedEmployee.id)}>Send Message</button>
                   <button onClick={() => toggleActive(selectedEmployee)}>{selectedEmployee.active ? "Deactivate" : "Activate"}</button>
                 </div>
               </> : <p className="muted">Select an employee.</p>}
@@ -4741,7 +4765,16 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
   const selectedThread = visibleThreads.find((t) => t.id === selectedThreadId) || visibleThreads[0] || null;
   const [recipientId, setRecipientId] = useState(initialRecipientId || "");
   const [newBody, setNewBody] = useState("");
+  const [sending, setSending] = useState(false);
   const recipients = getMessageRecipients(ctx, access);
+
+  useEffect(() => {
+    if (!initialRecipientId) return;
+    const existing = findDirectThread(ctx, access?.userId, initialRecipientId);
+    setRecipientId(initialRecipientId);
+    if (existing?.id) setSelectedThreadId(existing.id);
+    onRecipientConsumed?.();
+  }, [initialRecipientId, access?.userId]);
 
   useEffect(() => {
     if (!selectedThreadId && visibleThreads[0]?.id) setSelectedThreadId(visibleThreads[0].id);
@@ -4749,20 +4782,29 @@ function MessagesCenter({ ctx, access, reload, initialRecipientId = "", onRecipi
   }, [visibleThreads.length, selectedThreadId]);
 
   async function startThread() {
+    if (!access?.userId) return alert("This user profile is missing an auth user id. Messages need a real user profile id.");
     if (!recipientId) return alert("Choose a user to message.");
     if (!newBody.trim()) return alert("Type a message first.");
-    const existing = findDirectThread(ctx, access.userId, recipientId);
-    const thread = existing || await createDirectThread(ctx, access, recipientId, newBody.trim());
-    if (existing) await sendThreadMessage(ctx, access, existing.id, newBody.trim());
-    setSelectedThreadId(thread.id);
-    setNewBody("");
-    setRecipientId("");
-    await reload?.();
+    setSending(true);
+    try {
+      const existing = findDirectThread(ctx, access.userId, recipientId);
+      const thread = existing || await createDirectThread(ctx, access, recipientId, newBody.trim());
+      if (existing) await sendThreadMessage(ctx, access, existing.id, newBody.trim());
+      setSelectedThreadId(thread.id);
+      setNewBody("");
+      setRecipientId("");
+      await reload?.();
+    } catch (error) {
+      console.error("Message send failed", error);
+      alert(error?.message || "Message failed to send. Check the Supabase message tables and RLS policies.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return <section className="page messagesPage"><div className="adminHero"><div><p className="eyebrow">Direct Messages</p><h3>Messages</h3><p>Send a message to a specific user. It stays in a shared thread on mobile and desktop.</p></div></div>
     <div className="messagesLayout directMessagesLayout">
-      <Panel title="New Message" chip="Direct"><div className="messageComposer"><label>Send To<select value={recipientId} onChange={(e) => setRecipientId(e.target.value)}><option value="">Choose user...</option>{recipients.map((r) => <option key={r.id} value={r.id}>{r.full_name || r.email || r.id} — {formatRoleLabel(r.role)}</option>)}</select></label><label className="fullWidth">Message<textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="Type your message..." /></label><button className="primary wide" onClick={startThread}><MessageSquare size={16} /> Send</button></div></Panel>
+      <Panel title="New Message" chip="Direct"><div className="messageComposer"><label>Send To<select value={recipientId} onChange={(e) => setRecipientId(e.target.value)}><option value="">Choose user...</option>{recipients.map((r) => <option key={r.id} value={r.id}>{r.full_name || r.email || r.id} — {formatRoleLabel(r.role)}</option>)}</select></label><label className="fullWidth">Message<textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="Type your message..." /></label><button className="primary wide" onClick={startThread} disabled={sending}><MessageSquare size={16} /> {sending ? "Sending..." : "Send"}</button></div></Panel>
       <Panel title="Threads" chip={`${visibleThreads.length}`}><DirectMessageThreadList ctx={ctx} access={access} reload={reload} selectedThreadId={selectedThread?.id} onSelect={setSelectedThreadId} /></Panel>
       <Panel title="Message Thread" chip={selectedThread ? getThreadPartnerName(ctx, selectedThread, access) : "Select"}>{selectedThread ? <DirectMessageThread thread={selectedThread} ctx={ctx} access={access} reload={reload} /> : <p className="muted">No message thread selected.</p>}</Panel>
     </div>
@@ -4776,9 +4818,23 @@ function DirectMessageThreadList({ ctx, access, selectedThreadId, onSelect, comp
 
 function DirectMessageThread({ thread, ctx, access, reload }) {
   const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
   const messages = getThreadMessages(ctx, thread.id);
-  async function send() { if (!body.trim()) return; await sendThreadMessage(ctx, access, thread.id, body.trim()); setBody(""); await reload?.(); }
-  return <div className="directThread"><div className="threadMessages">{messages.map((m) => <div key={m.id} className={`threadBubble ${m.sender_user_id === access?.userId ? "mine" : "theirs"}`}><p>{m.body}</p><small>{getProfileName(ctx, m.sender_user_id)} • {formatDateTime(m.created_at)}</small></div>)}{!messages.length && <p className="muted">No messages in this thread.</p>}</div><div className="threadComposer"><textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Type a reply..." onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send(); }} /><button className="primary" onClick={send}>Send</button></div></div>;
+  async function send() {
+    if (!body.trim()) return;
+    setSending(true);
+    try {
+      await sendThreadMessage(ctx, access, thread.id, body.trim());
+      setBody("");
+      await reload?.();
+    } catch (error) {
+      console.error("Reply send failed", error);
+      alert(error?.message || "Reply failed to send.");
+    } finally {
+      setSending(false);
+    }
+  }
+  return <div className="directThread"><div className="threadMessages">{messages.map((m) => <div key={m.id} className={`threadBubble ${m.sender_user_id === access?.userId ? "mine" : "theirs"}`}><p>{m.body}</p><small>{getProfileName(ctx, m.sender_user_id)} • {formatDateTime(m.created_at)}</small></div>)}{!messages.length && <p className="muted">No messages in this thread.</p>}</div><div className="threadComposer"><textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Type a reply..." onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send(); }} /><button className="primary" onClick={send} disabled={sending}>{sending ? "Sending..." : "Send"}</button></div></div>;
 }
 
 async function createDirectThread(ctx, access, recipientId, preview) {
