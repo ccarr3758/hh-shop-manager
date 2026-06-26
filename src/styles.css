@@ -1633,3 +1633,66 @@ button:not(.primary):not(.sidebarButton) {
 @media(max-width:760px){
   .dashboardAtGlance .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
+
+/* v13 manager-glance correction: keep Shop Pulse, compact it, and keep live tech board above the fold */
+.dashboardGlanceV13{padding-top:12px;}
+.dashboardGlanceV13 .shopPulseCard{
+  margin-bottom:14px;
+  padding:14px 18px;
+  border-radius:24px;
+  grid-template-columns:minmax(220px,.75fr) minmax(420px,1.25fr);
+  gap:14px;
+  min-height:116px;
+}
+.dashboardGlanceV13 .shopPulseMain h3{font-size:32px;line-height:.95;}
+.dashboardGlanceV13 .shopPulseTitleRow strong{font-size:30px;}
+.dashboardGlanceV13 .shopPulseMain p:last-child{font-size:13px;margin-top:5px;}
+.dashboardGlanceV13 .shopPulseStats{gap:8px;}
+.dashboardGlanceV13 .shopPulseStats div{padding:11px 12px;border-radius:16px;}
+.dashboardGlanceV13 .shopPulseStats strong{font-size:23px;margin-top:3px;}
+.dashboardGlanceV13 .shopPulseStats span,
+.dashboardGlanceV13 .managerFocusStrip span{font-size:11px;}
+.dashboardGlanceV13 .managerFocusStrip{padding:9px 12px;border-radius:16px;}
+.dashboardGlanceV13 .managerFocusStrip b{font-size:11px;padding:5px 9px;}
+.dashboardGlanceV13 .dashboardCommandGrid{
+  grid-template-columns:minmax(285px,330px) minmax(560px,1fr) minmax(250px,300px);
+  gap:14px;
+  align-items:start;
+  margin-bottom:14px;
+}
+.dashboardGlanceV13 .dashboardRequestStack{gap:12px;}
+.dashboardGlanceV13 .dashboardRequestStack .panel,
+.dashboardGlanceV13 .dashboardLiveFull .panel{margin:0;}
+.dashboardGlanceV13 .dashboardRequestStack .panelBody{padding:11px 12px;}
+.dashboardGlanceV13 .emptyRequestState{padding:10px 12px;}
+.dashboardGlanceV13 .dashboardMessagesHeader{padding:10px 12px;}
+.dashboardGlanceV13 .dashboardMessagesBlock{gap:10px;}
+.dashboardGlanceV13 .dashboardMessagesBlock .threadList{max-height:128px;}
+.dashboardGlanceV13 .dashboardMessagesBlock .wide{min-height:36px;}
+.dashboardGlanceV13 .dashboardLiveFull{min-width:0;margin:0;}
+.dashboardGlanceV13 .dashboardLiveFull .liveTechGrid{max-height:350px;overflow:auto;}
+.dashboardGlanceV13 .compactKpiStrip{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin:0;
+  align-content:start;
+}
+.dashboardGlanceV13 .compactKpi{min-height:75px;padding:10px 12px;border-radius:15px;}
+.dashboardGlanceV13 .compactKpi span{font-size:11px;}
+.dashboardGlanceV13 .compactKpi strong{font-size:22px;margin-top:2px;}
+.dashboardGlanceV13 .compactKpi small{font-size:11px;margin-top:0;}
+@media(max-width:1400px){
+  .dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:minmax(280px,330px) minmax(560px,1fr);}
+  .dashboardGlanceV13 .compactKpiStrip{grid-column:1 / -1;grid-template-columns:repeat(8,minmax(90px,1fr));}
+  .dashboardGlanceV13 .compactKpi{min-height:68px;}
+}
+@media(max-width:1100px){
+  .dashboardGlanceV13 .shopPulseCard,
+  .dashboardGlanceV13 .dashboardCommandGrid{grid-template-columns:1fr;}
+  .dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(4,minmax(0,1fr));}
+}
+@media(max-width:760px){
+  .dashboardGlanceV13 .compactKpiStrip,
+  .dashboardGlanceV13 .shopPulseStats{grid-template-columns:repeat(2,minmax(0,1fr));}
+}

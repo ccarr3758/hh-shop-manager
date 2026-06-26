@@ -2290,20 +2290,29 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
   const requests = buildDashboardRequestItems(ctx, access);
 
   return (
-    <section className="page dashboardPolished dashboardAtGlance">
+    <section className="page dashboardPolished dashboardAtGlance dashboardGlanceV13">
+      <ShopPulseCard
+        jobs={jobs}
+        allJobs={allJobs}
+        ctx={ctx}
+        metrics={metrics}
+        selectedDate={selectedDate}
+        requestCount={requests.length}
+      />
+
       <div className="dashboardCommandGrid">
         <div className="dashboardRequestStack">
           <DashboardRequestsPanel ctx={ctx} access={access} reload={reload} requests={requests} />
           <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
-        <div className="dashboardMainStack">
-          <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
-          <div className="dashboardLiveFull">
-            <Panel title="Live Shop Status" chip={`${openJobs.length} open`}>
-              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
-            </Panel>
-          </div>
+
+        <div className="dashboardLiveFull">
+          <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
+            <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+          </Panel>
         </div>
+
+        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
       </div>
 
       <div className="grid two dashboardLowerGrid">
