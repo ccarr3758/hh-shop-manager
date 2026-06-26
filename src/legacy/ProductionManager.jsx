@@ -94,6 +94,8 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const liveRefreshRunning = useRef(false);
   const notificationAudioRef = useRef(null);
   const pushRegistrationAttempted = useRef(false);
+  const initialLoadComplete = useRef(false);
+  const lastRestoreTick = useRef(0);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
   );
@@ -134,8 +136,12 @@ export default function ProductionManager({ authProfile, onSignOut }) {
     }
   }
 
-  async function loadAll() {
-    setLoading(true);
+  async function loadAll(options = {}) {
+    const preserveScroll = options?.preserveScroll !== false;
+    const showBlockingLoader = !initialLoadComplete.current || options?.showLoader === true;
+    const scrollSnapshot = preserveScroll ? captureViewportPosition() : null;
+
+    if (showBlockingLoader) setLoading(true);
     setCloudError("");
 
     try {
@@ -212,16 +218,24 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         shopSettings: shopSettings[0] || null,
         jobs,
       });
+      initialLoadComplete.current = true;
+      if (scrollSnapshot) {
+        const restoreId = Date.now();
+        lastRestoreTick.current = restoreId;
+        restoreViewportPosition(scrollSnapshot, () => lastRestoreTick.current === restoreId);
+      }
+    } catch (err) {
     } catch (err) {
       console.error(err);
       setCloudError(err.message || "Failed to load Supabase data.");
     } finally {
-      setLoading(false);
+      if (showBlockingLoader) setLoading(false);
+      initialLoadComplete.current = true;
     }
   }
 
   useEffect(() => {
-    loadAll();
+    loadAll({ preserveScroll: false, showLoader: true });
   }, []);
 
   useEffect(() => {
@@ -666,6 +680,61 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   );
 }
 
+
+
+function captureViewportPosition() {
+  if (typeof window === "undefined") return null;
+  const scrollingElement = document.scrollingElement || document.documentElement || document.body;
+  const activeElement = document.activeElement;
+  return {
+    windowX: window.scrollX || scrollingElement.scrollLeft || 0,
+    windowY: window.scrollY || scrollingElement.scrollTop || 0,
+    activeSelector: getStableElementSelector(activeElement),
+    activeTop: activeElement?.getBoundingClientRect ? activeElement.getBoundingClientRect().top : null,
+  };
+}
+
+function restoreViewportPosition(snapshot, shouldRestore = () => true) {
+  if (typeof window === "undefined" || !snapshot) return;
+
+  const restore = () => {
+    if (!shouldRestore()) return;
+
+    const activeElement = snapshot.activeSelector ? document.querySelector(snapshot.activeSelector) : null;
+    if (activeElement?.getBoundingClientRect && typeof snapshot.activeTop === "number") {
+      const currentTop = activeElement.getBoundingClientRect().top;
+      const delta = currentTop - snapshot.activeTop;
+      if (Math.abs(delta) > 1) {
+        window.scrollTo(snapshot.windowX || 0, Math.max(0, (window.scrollY || 0) + delta));
+        return;
+      }
+    }
+
+    window.scrollTo(snapshot.windowX || 0, Math.max(0, snapshot.windowY || 0));
+  };
+
+  window.requestAnimationFrame(() => {
+    restore();
+    window.requestAnimationFrame(restore);
+    window.setTimeout(restore, 80);
+  });
+}
+
+function getStableElementSelector(element) {
+  if (!element || element === document.body || element === document.documentElement) return "";
+  if (element.id) return `#${CSS.escape(element.id)}`;
+
+  const attrCandidates = ["name", "aria-label", "data-job-id", "data-id"];
+  for (const attr of attrCandidates) {
+    const value = element.getAttribute?.(attr);
+    if (value) return `${element.tagName.toLowerCase()}[${attr}="${String(value).replace(/"/g, '\"')}"]`;
+  }
+
+  const panel = element.closest?.(".panel, .jobCard, .mobileJobCard, .modal, .page");
+  if (!panel) return "";
+  const panelIndex = Array.from(document.querySelectorAll(panel.className ? `.${String(panel.className).trim().split(/\s+/)[0]}` : panel.tagName.toLowerCase())).indexOf(panel);
+  return panelIndex >= 0 ? `.${String(panel.className).trim().split(/\s+/)[0]}:nth-of-type(${panelIndex + 1})` : "";
+}
 
 
 function usePwaInstall() {
@@ -7686,11 +7755,11 @@ function getAllowedViewNames(access) {
 }
 
 function filterJobsForAccess(jobs, access) {
-  const role = normalizeRole(access?.role);
-  if (role === "technician" && access?.technicianId) {
-    return jobs.filter((job) => job.technician_id === access.technicianId);
-  }
-  return jobs;
+  // Technicians still have restricted actions, but their dashboard/jobs/leaderboards
+  // must use the full shop job set so every technician populates correctly.
+  // Previous filtering to only access.technicianId made other techs disappear or show
+  // zeroed stats when signed into a tech account.
+  return jobs || [];
 }
 
 function requestNotificationPermission() {
