@@ -32,14 +32,32 @@ create index if not exists idx_shop_thread_messages_company on public.shop_threa
 alter table public.shop_message_threads enable row level security;
 alter table public.shop_thread_messages enable row level security;
 
+-- Helper functions run as the table owner so policies do not recursively read user_profiles.
+create or replace function public.hh_current_company_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select up.company_id
+  from public.user_profiles up
+  where up.id = auth.uid()
+    and up.active = true
+  limit 1;
+$$;
+
+grant execute on function public.hh_current_company_id() to authenticated;
+
 -- Let authenticated users read active users in their company so they can choose a message recipient.
+-- Do not query user_profiles directly inside this policy, or Supabase can block login with recursive RLS.
 drop policy if exists "company user profile directory" on public.user_profiles;
-create policy "company user profile directory" on public.user_profiles
+drop policy if exists "hh_user_profiles_company_directory_select" on public.user_profiles;
+create policy "hh_user_profiles_company_directory_select" on public.user_profiles
 for select to authenticated
 using (
-  company_id in (
-    select up.company_id from public.user_profiles up where up.id = auth.uid() and up.active = true
-  )
+  active = true
+  and company_id = public.hh_current_company_id()
 );
 
 -- Participants can view and create their own direct message threads.

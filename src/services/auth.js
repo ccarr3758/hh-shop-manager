@@ -42,9 +42,9 @@ export async function getUserProfile(userId) {
   try {
     return await supabase
       .from("user_profiles")
-      .select("*, companies(*), technicians(*)")
+      .select("id, company_id, technician_id, full_name, role, active, created_at, updated_at")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
   } catch (error) {
     console.warn("User profile fetch failed", error);
     return { data: null, error };

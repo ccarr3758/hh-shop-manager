@@ -53,9 +53,15 @@ export default function App() {
     if (profileError) {
       setProfile(null);
       const transientNetworkError = profileError?.message === "Failed to fetch" || profileError?.name === "TypeError";
+      const rlsOrPolicyError = ["42501", "PGRST301"].includes(profileError?.code) || String(profileError?.message || "").toLowerCase().includes("row-level security") || String(profileError?.message || "").toLowerCase().includes("infinite recursion");
       setError(transientNetworkError
         ? "Connection to Supabase was interrupted. Check the network connection, then refresh."
-        : "This login works, but no active user profile was found. Add this user to user_profiles in Supabase.");
+        : rlsOrPolicyError
+          ? "Your login works, but Supabase blocked the profile lookup. Run supabase/RUN_THIS_SQL_PROFILE_RLS_FIX.sql, then refresh."
+          : `Profile lookup failed: ${profileError?.message || "unknown error"}`);
+    } else if (!data) {
+      setProfile(null);
+      setError("This login works, but no active user profile was found. Add this Auth user ID to user_profiles in Supabase.");
     } else if (data?.active === false) {
       setProfile(null);
       setError("This user profile is inactive.");
