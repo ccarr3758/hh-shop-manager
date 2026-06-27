@@ -44,10 +44,11 @@ const nav = [
 ];
 
 const navGroups = [
-  ["Command", ["Performance", "Mobile Manager", "Notifications", "Messages", "Hall of Fame"]],
-  ["Operations", ["Dashboard", "Schedule", "Outlook Calendar", "Foreman", "Production Log"]],
-  ["Shop Setup", ["Technicians", "Tech Clock", "Products"]],
-  ["System", ["Admin", "Cloud Status"]],
+  ["Overview", ["Dashboard", "Performance"]],
+  ["Operations", ["Mobile Manager", "Production Log", "Schedule", "Outlook Calendar", "Foreman"]],
+  ["People", ["Messages", "Notifications", "Technicians", "Tech Clock", "Hall of Fame"]],
+  ["Business", ["Products"]],
+  ["Management", ["Admin", "Cloud Status"]],
 ];
 
 const LIVE_REFRESH_MS = 3000;
@@ -2141,8 +2142,6 @@ function CompactKpiStrip({ jobs, ctx, metrics }) {
     { label: "In Progress", value: inProgress, caption: "Live jobs" },
     { label: "Book Hrs", value: metrics.bookComplete.toFixed(1), caption: "Complete" },
     { label: "Actual Hrs", value: metrics.actualUsed.toFixed(1), caption: "Used" },
-    { label: "Helpers", value: `${metrics.helperBookComplete.toFixed(1)} / ${metrics.helperActualUsed.toFixed(1)}`, caption: "Book / actual" },
-    { label: "Avg Install", value: `${metrics.avgActualTime.toFixed(2)}h`, caption: "Completed" },
     { label: "Efficiency", value: `${Math.round(metrics.efficiency)}%`, caption: "Overall" },
   ];
   if (paused > 0) items.splice(3, 0, { label: "Paused", value: paused, caption: "Needs attention", alert: true });
@@ -2306,32 +2305,19 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
           <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
 
-        <div className="dashboardLiveFull">
-          <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
-            <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
-          </Panel>
-        </div>
+        <div className="dashboardMainStack">
+          <div className="dashboardLiveFull">
+            <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
+              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+            </Panel>
+          </div>
 
-        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+          <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+        </div>
       </div>
 
-      <div className="grid two dashboardLowerGrid">
-        <Panel title="Jobs In Progress" chip="Open jobs">
-          <div className="jobList compactJobList">
-            {openJobs.length ? (
-              openJobs.slice(0, 8).map((job) => <JobCard key={job.id} job={job} ctx={ctx} />)
-            ) : (
-              <p className="muted">No open jobs.</p>
-            )}
-          </div>
-        </Panel>
-        <div className="dashboardStack">
-          <WeeklyTrendPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
-          <CapacityForecastPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
-          <Panel title="Monthly Efficiency Leaderboard" chip={currentMonthLabel()}>
-            <TechLeaderboard jobs={allJobs} ctx={ctx} monthly />
-          </Panel>
-        </div>
+      <div className="dashboardTipBar">
+        <strong>Tip:</strong> Click any tech row to open their job details and time log.
       </div>
     </section>
   );
