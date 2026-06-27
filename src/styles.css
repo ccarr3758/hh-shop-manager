@@ -1778,3 +1778,40 @@ button:not(.primary):not(.sidebarButton) {
 .employeeDetailActions button:last-child{border-color:#fecaca;color:#991b1b;background:#fff7f7;}
 @media(max-width:1100px){.dashboardInsightsGrid{grid-template-columns:1fr;}.employeeDetailCard{position:static;}}
 @media(max-width:760px){.employeeConsoleHeader,.employeeConsoleRow{min-width:0;grid-template-columns:1fr;}.dashboardInsightsGrid .leaderList{max-height:none;}}
+
+/* Dashboard tech-row job-details modal patch */
+.jobDetailsTimeLog {
+  margin: 14px 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.jobDetailsTimeLog h4 {
+  margin: 0 0 10px;
+  color: #0f172a;
+}
+.jobDetailsTimeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.jobDetailsTimeGrid span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+}
+.jobDetailsTimeGrid b {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #64748b;
+}
+@media (max-width: 760px) {
+  .jobDetailsTimeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -84,6 +84,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   const [messageRecipientId, setMessageRecipientId] = useState("");
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
+  const openJobDetailsOnly = (job) => setEditingJob(job ? { ...job, __detailsOnly: true } : null);
   const [state, setState] = useState(emptyState());
   const [loading, setLoading] = useState(true);
   const [cloudError, setCloudError] = useState("");
@@ -632,7 +633,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} markThreadReadNow={markThreadReadNow} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} markThreadReadNow={markThreadReadNow} setEditingJob={setEditingJob} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} markThreadReadNow={markThreadReadNow} setEditingJob={setEditingJob} openJobDetailsOnly={openJobDetailsOnly} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -2284,7 +2285,7 @@ function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages, markThrea
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages, markThreadReadNow, setEditingJob }) {
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages, markThreadReadNow, setEditingJob, openJobDetailsOnly }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const requests = buildDashboardRequestItems(ctx, access);
 
@@ -2308,7 +2309,7 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
         <div className="dashboardMainStack">
           <div className="dashboardLiveFull">
             <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
-              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded onOpenJob={setEditingJob} />
+              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded onOpenJob={openJobDetailsOnly || setEditingJob} />
             </Panel>
           </div>
 
@@ -5791,7 +5792,7 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
   const totalBookHours = totalProductLineHours(productLines);
   const totalLabor = totalProductLineLabor(productLines);
   const primaryProductId = productLines[0]?.product_id || null;
-  const technicianDetailsOnly = isTechnicianOnly(access);
+  const technicianDetailsOnly = isTechnicianOnly(access) || Boolean(job.__detailsOnly);
 
   async function saveTechJobDetails(e) {
     e.preventDefault();
@@ -5863,6 +5864,16 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
               Job Details / Notes
               <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
             </label>
+          </div>
+
+          <div className="jobDetailsTimeLog">
+            <h4>Time Log</h4>
+            <div className="jobDetailsTimeGrid">
+              <span><b>Start Time</b>{formatTime(job.start_time)}</span>
+              <span><b>Book Hours</b>{Number(job.book_hours || 0).toFixed(2)}</span>
+              <span><b>Actual Hours</b>{job.actual_hours == null ? "—" : Number(job.actual_hours || 0).toFixed(2)}</span>
+              <span><b>Status</b>{ctx.status(job.status_id)?.name || "—"}</span>
+            </div>
           </div>
 
           <button className="primary wide">Save Job Details</button>
