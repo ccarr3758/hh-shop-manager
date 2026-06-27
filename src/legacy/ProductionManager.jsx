@@ -977,13 +977,13 @@ function MobileStyles() {
         .modalHeader { flex: 0 0 auto !important; }
         .modal .formGrid { flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; padding-bottom: 16px !important; }
         .modal > button.primary.wide { flex: 0 0 auto !important; position: static !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; min-height: 58px !important; margin: 12px 0 0 !important; border-radius: 16px !important; background: #f97316 !important; color: #fff !important; opacity: 1 !important; visibility: visible !important; box-shadow: 0 12px 28px rgba(249,115,22,.24) !important; }
-        .modalFooter { flex: 0 0 auto !important; position: static !important; background: #0b1424 !important; padding: 12px 0 0 !important; border-top: 1px solid #26364d !important; }
+        .modalFooter { flex: 0 0 auto !important; position: static !important; background: #f8fafc !important; padding: 12px 0 0 !important; }
         .table, .performanceTable, .availabilityTable, .schedule { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
         .outlookGrid { grid-template-columns: 1fr !important; }
         .productLineRow { grid-template-columns: 1fr !important; }
         .productLinesTotal { justify-content: flex-start !important; }
         .accessGate { min-height: 100vh; display: grid; place-items: center; padding: 18px; background: #070d1c; }
-        .accessPanel { width: min(520px, 100%); border-radius: 22px; padding: 18px; background: #0f172a; color: #f8fafc; border: 1px solid #26364d; }
+        .accessPanel { width: min(520px, 100%); border-radius: 22px; padding: 18px; background: #f8fafc; }
         .accessPanel label { display: grid; gap: 6px; margin: 12px 0; font-weight: 900; color: #0f172a; }
 
         .phoneHeader { padding: calc(10px + env(safe-area-inset-top)) 18px 10px !important; align-items: center !important; }
@@ -2141,6 +2141,8 @@ function CompactKpiStrip({ jobs, ctx, metrics }) {
     { label: "In Progress", value: inProgress, caption: "Live jobs" },
     { label: "Book Hrs", value: metrics.bookComplete.toFixed(1), caption: "Complete" },
     { label: "Actual Hrs", value: metrics.actualUsed.toFixed(1), caption: "Used" },
+    { label: "Helpers", value: `${metrics.helperBookComplete.toFixed(1)} / ${metrics.helperActualUsed.toFixed(1)}`, caption: "Book / actual" },
+    { label: "Avg Install", value: `${metrics.avgActualTime.toFixed(2)}h`, caption: "Completed" },
     { label: "Efficiency", value: `${Math.round(metrics.efficiency)}%`, caption: "Overall" },
   ];
   if (paused > 0) items.splice(3, 0, { label: "Paused", value: paused, caption: "Needs attention", alert: true });
@@ -2304,15 +2306,13 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
           <DashboardMessagesPanel ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} markThreadReadNow={markThreadReadNow} />
         </div>
 
-        <div className="dashboardMainWork">
-          <div className="dashboardLiveFull">
-            <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
-              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
-            </Panel>
-          </div>
-
-          <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
+        <div className="dashboardLiveFull">
+          <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
+            <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+          </Panel>
         </div>
+
+        <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
       </div>
 
       <div className="grid two dashboardLowerGrid">
@@ -2407,9 +2407,7 @@ function isWorkingMinute(minute, schedule) {
 }
 
 function getBookMinutes(job) {
-  // Approved variance extends the job's allowed book time.
-  // This keeps the live board and mobile timing from showing overdue after a manager approves extra time.
-  return Math.max(0, Math.round(getAdjustedBookHours(job) * 60));
+  return Math.max(0, Math.round(Number(job?.book_hours || 0) * 60));
 }
 
 function addBookMinutesWithinShop(startTime, bookMinutes, ctx) {
@@ -3245,17 +3243,16 @@ function PendingRoadblockExtensionCard({ notification, ctx, access, reload }) {
 
     const addedHours = roundHours(minutes / 60);
     const previousBookHours = Number(job.book_hours || 0);
-    const previousVarianceHours = Number(job.approved_variance_hours || 0);
-    const nextVarianceHours = roundHours(previousVarianceHours + addedHours);
-    const nextBookHours = previousBookHours;
+    const nextBookHours = roundHours(previousBookHours + addedHours);
     const noteLine = `Roadblock extension approved: +${minutes} min by ${access?.fullName || access?.email || access?.role || "manager"}. Tech requested +${requestedMinutes} min. Reason: ${metadata.reason || "No reason recorded"}${managerNote ? `. Manager note: ${managerNote}` : ""}`;
 
     const { error: jobError } = await supabase
       .from("jobs")
       .update({
+        book_hours: nextBookHours,
         notes: `${job.notes || ""}
 ${noteLine}`.trim(),
-        approved_variance_hours: nextVarianceHours,
+        approved_variance_hours: roundHours(Number(job.approved_variance_hours || 0) + addedHours),
         approved_variance_reason: metadata.reason || job.approved_variance_reason || "Roadblock extension",
         approved_variance_approved_by: access?.fullName || access?.email || access?.role || "Manager",
         updated_at: new Date().toISOString(),
@@ -4776,85 +4773,74 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
 
   if (!canManageEmployees) return null;
   return (
-    <Panel title="Employee Control" chip={`${enrichedEmployees.length} employees`}>
-      <div className="employeeControlV22">
-        <div className="employeeControlHeaderV22">
+    <Panel title="Employee Management" chip={`${enrichedEmployees.length} users`}>
+      <div className="adminEmployeeShell">
+        <div className="employeeConsoleHero">
           <div>
             <p className="eyebrow">Admin Center</p>
-            <h3>Employee Activity & Control</h3>
-            <p>One screen for employee status, last activity, account controls, and new employee setup.</p>
+            <h3>Employee Control Center</h3>
+            <p>Track usage, reset passwords, edit roles, message employees, and spot who is not using the system.</p>
           </div>
-          <button className="primary employeeAddBtnV22" onClick={startNewEmployee} disabled={saving}>
-            <Plus size={16} /> Add Employee
-          </button>
+          <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
         </div>
 
-        <div className="employeeControlStatsV22">
+        <div className="employeeMetricsGrid">
           <div><b>{enrichedEmployees.length}</b><span>Employees</span></div>
-          <div><b>{onlineCount}</b><span>Online</span></div>
+          <div><b>{onlineCount}</b><span>Online Now</span></div>
           <div><b>{activeToday}</b><span>Active Today</span></div>
           <div><b>{followUpCount}</b><span>Needs Follow-up</span></div>
-          <div><b>{unreadTotal}</b><span>Unread</span></div>
+          <div><b>{unreadTotal}</b><span>Unread Messages</span></div>
         </div>
 
-        <div className="employeeControlToolbarV22">
-          <label className="employeeSearchV22"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees..." /></label>
-          <div className="employeeFiltersV22">
-            {[["all", "All"], ["technician", "Techs"], ["foreman", "Foremen"], ["manager", "Managers"], ["service_writer", "Writers"], ["inactive", "Inactive"]].map(([value, label]) => (
-              <button key={value} className={roleFilter === value ? "active" : ""} onClick={() => setRoleFilter(value)}>{label}</button>
-            ))}
+        <div className="employeeToolbar">
+          <label className="employeeSearch"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees..." /></label>
+          <div className="employeeFilters">
+            {[["all", "All"], ["technician", "Techs"], ["foreman", "Foremen"], ["manager", "Managers"], ["service_writer", "Writers"], ["inactive", "Inactive"]].map(([value, label]) => <button key={value} className={roleFilter === value ? "active" : ""} onClick={() => setRoleFilter(value)}>{label}</button>)}
           </div>
         </div>
 
         {error && <div className="employeeSetupWarning"><strong>Setup needed</strong><span>{error}</span><small>Deploy the included Supabase Edge Function named <b>admin-api</b> and run the included SQL.</small></div>}
         {loading ? <p className="muted">Loading employees...</p> : (
-          <div className="employeeControlGridV22">
-            <div className="employeeListV22">
-              <div className="employeeListHeadV22"><span>Employee</span><span>Role</span><span>Status</span><span>Last Active</span><span>Today</span><span>Unread</span></div>
+          <div className="employeeConsoleGrid">
+            <div className="employeeConsoleList">
+              <div className="employeeConsoleHeader"><span>Employee</span><span>Role</span><span>Status</span><span>Last Activity</span><span>Today</span><span>Messages</span><span>Actions</span></div>
               {filteredEmployees.map((employee) => (
-                <button type="button" className={`employeeListRowV22 ${selectedEmployee?.id === employee.id ? "selected" : ""}`} key={employee.id} onClick={() => setSelectedEmployeeId(employee.id)}>
-                  <div className="employeeNameV22">
-                    <b>{employee.full_name || "Unnamed"}</b>
-                    <small>{employee.email || employee.linkedTech?.name || "No login shown"}</small>
-                  </div>
-                  <span className="rolePillV22">{formatRoleLabel(employee.role)}</span>
-                  <span className={`statusPillV22 ${employee.activity.statusKey}`}>{employee.activity.statusLabel}</span>
-                  <div className="lastActiveV22"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
-                  <span className="actionsTodayV22">{employee.activity.actionsToday}</span>
-                  <span className={employee.unread ? "unreadPillV22 hot" : "unreadPillV22"}>{employee.unread}</span>
-                </button>
+                <div className={`employeeConsoleRow ${selectedEmployee?.id === employee.id ? "selected" : ""}`} key={employee.id} onClick={() => setSelectedEmployeeId(employee.id)}>
+                  <div className="employeeIdentity"><b>{employee.full_name || "Unnamed"}</b><small>{employee.linkedTech?.name ? `Tech: ${employee.linkedTech.name}` : employee.email || "No login shown"}</small></div>
+                  <span className="rolePill">{formatRoleLabel(employee.role)}</span>
+                  <span className={`statusMini ${employee.activity.statusKey}`}>{employee.activity.statusLabel}</span>
+                  <div className="employeeActivityCell"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
+                  <span>{employee.activity.actionsToday}</span>
+                  <span className={employee.unread ? "messageCount hot" : "messageCount"}>{employee.unread}</span>
+                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => onOpenMessages?.(employee.id)}>Message</button></span>
+                </div>
               ))}
               {!filteredEmployees.length && !error && <p className="muted">No employees match that filter.</p>}
             </div>
 
-            <aside className="employeeActionPanelV22">
+            <aside className="employeeDetailCard">
               {selectedEmployee ? <>
-                <div className="employeeActionTopV22">
-                  <div>
-                    <p className="eyebrow">Selected Employee</p>
-                    <h3>{selectedEmployee.full_name || "Unnamed"}</h3>
-                    <span>{selectedEmployee.email || "No login email"}</span>
-                  </div>
-                  <span className={`statusPillV22 ${selectedEmployee.activity.statusKey}`}>{selectedEmployee.activity.statusLabel}</span>
-                </div>
-                <div className="employeeActionFactsV22">
+                <div className="employeeDetailTop"><div><p className="eyebrow">Employee Details</p><h3>{selectedEmployee.full_name || "Unnamed"}</h3><span>{selectedEmployee.email || "No login email"}</span></div><span className={`statusMini ${selectedEmployee.activity.statusKey}`}>{selectedEmployee.activity.statusLabel}</span></div>
+                <div className="employeeDetailStats">
                   <div><span>Role</span><b>{formatRoleLabel(selectedEmployee.role)}</b></div>
                   <div><span>Linked Tech</span><b>{selectedEmployee.linkedTech?.name || "None"}</b></div>
-                  <div><span>Last Active</span><b>{selectedEmployee.activity.lastActivity ? relativeTime(selectedEmployee.activity.lastActivity) : "Never"}</b></div>
+                  <div><span>Last Activity</span><b>{selectedEmployee.activity.lastActivity ? relativeTime(selectedEmployee.activity.lastActivity) : "Never"}</b></div>
                   <div><span>Last Login</span><b>{selectedEmployee.activity.lastLogin ? relativeTime(selectedEmployee.activity.lastLogin) : "Never"}</b></div>
+                  <div><span>Today</span><b>{selectedEmployee.activity.actionsToday} actions</b></div>
+                  <div><span>Unread Messages</span><b>{selectedEmployee.unread}</b></div>
                 </div>
-                <div className="employeeMenuV22">
+                <div className="employeeDetailActions">
                   <button className="primary" onClick={() => setDraft({ ...selectedEmployee, password: "" })}>Edit Employee</button>
                   <button onClick={() => setPasswordDraft({ ...selectedEmployee, password: "" })}>Reset Password</button>
                   <button onClick={() => onOpenMessages?.(selectedEmployee.id)}>Send Message</button>
-                  <button className={selectedEmployee.active ? "dangerSoft" : "successSoft"} onClick={() => toggleActive(selectedEmployee)} disabled={saving}>{selectedEmployee.active ? "Deactivate" : "Activate"}</button>
+                  <button onClick={() => toggleActive(selectedEmployee)}>{selectedEmployee.active ? "Deactivate" : "Activate"}</button>
                 </div>
               </> : <p className="muted">Select an employee.</p>}
             </aside>
           </div>
         )}
 
-        {draft && <div className="inlineEditor employeeEditor employeeDrawer employeeDrawerV22">
+        {draft && <div className="inlineEditor employeeEditor employeeDrawer">
           <div className="employeeDrawerHead"><h3>{draft.id ? "Edit Employee" : "Add Employee"}</h3><button onClick={() => setDraft(null)}>Close</button></div>
           <label>Full Name<input value={draft.full_name || ""} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></label>
           <label>Login Email / Username<input value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} disabled={!!draft.id} /></label>
@@ -4864,12 +4850,11 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
           <label className="check"><input type="checkbox" checked={draft.active !== false} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
           <div className="rowActions"><button className="primary" onClick={saveEmployee} disabled={saving}>Save Employee</button><button onClick={() => setDraft(null)}>Cancel</button></div>
         </div>}
-        {passwordDraft && <div className="inlineEditor employeeEditor passwordEditor employeeDrawer employeeDrawerV22"><div className="employeeDrawerHead"><h3>Reset Password</h3><button onClick={() => setPasswordDraft(null)}>Close</button></div><p><b>{passwordDraft.full_name || passwordDraft.email}</b></p><label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label><div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div></div>}
+        {passwordDraft && <div className="inlineEditor employeeEditor passwordEditor employeeDrawer"><div className="employeeDrawerHead"><h3>Reset Password</h3><button onClick={() => setPasswordDraft(null)}>Close</button></div><p><b>{passwordDraft.full_name || passwordDraft.email}</b></p><label>New Password<input type="password" value={passwordDraft.password || ""} onChange={(e) => setPasswordDraft({ ...passwordDraft, password: e.target.value })} /></label><div className="rowActions"><button className="primary" onClick={savePassword} disabled={saving}>Change Password</button><button onClick={() => setPasswordDraft(null)}>Cancel</button></div></div>}
       </div>
     </Panel>
   );
 }
-
 
 function formatRoleLabel(role) {
   return String(role || "technician").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -5076,6 +5061,7 @@ function Admin({ ctx, reload, access, onOpenMessages }) {
       </div>
 
       <EmployeeManagement ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} />
+      <EmployeeActivityPanel ctx={ctx} />
       <MessagesAdminPanel ctx={ctx} access={access} reload={reload} />
 
       <div className="grid two">
@@ -6860,9 +6846,7 @@ async function fetchJobs(companyId) {
 
 
 function getAdjustedBookHours(job) {
-  const baseBookHours = Number(job?.book_hours || 0);
-  const varianceHours = Number(job?.approved_variance_hours || 0);
-  return Math.max(0, baseBookHours + varianceHours);
+  return Number(job?.book_hours || 0) + Number(job?.approved_variance_hours || 0);
 }
 
 function getActiveElapsedHours(job, nowDate = new Date(), fallbackStart = null) {

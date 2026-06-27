@@ -1,0 +1,2 @@
+const http=require('http'),fs=require('fs'),path=require('path'); const root='src';
+http.createServer((req,res)=>{let p=req.url==='/'?'index.html':req.url.slice(1); let fp=path.join(root,p); if(!fs.existsSync(fp)) fp=path.join(root,'index.html'); const ext=path.extname(fp); const type={'.html':'text/html','.js':'text/javascript','.css':'text/css'}[ext]||'text/plain'; res.writeHead(200,{'content-type':type}); res.end(fs.readFileSync(fp));}).listen(5173,()=>console.log('http://localhost:5173'));
