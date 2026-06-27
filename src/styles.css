@@ -1755,3 +1755,26 @@ button:not(.primary):not(.sidebarButton) {
 @media(max-width:760px){
   .dashboardGlanceV13 .compactKpiStrip{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
+
+/* v2.1 dashboard/admin consolidation patch */
+.dashboardInsightsGrid{
+  display:grid;
+  grid-template-columns:minmax(300px,.82fr) minmax(420px,1.18fr);
+  gap:16px;
+  align-items:start;
+  margin-top:2px;
+}
+.dashboardInsightsGrid .panel{margin:0;}
+.dashboardInsightsGrid .leaderList{max-height:300px;overflow:auto;padding-right:4px;}
+.dashboardAvailabilityTable .availabilityRow[role="button"]{cursor:pointer;}
+.dashboardAvailabilityTable .availabilityRow[role="button"]:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(15,23,42,.10);border-color:rgba(37,99,235,.24);}
+.employeeConsoleHero{background:linear-gradient(135deg,#ffffff,#f8fafc);color:var(--text);border:1px solid var(--border);box-shadow:var(--shadow-soft);}
+.employeeConsoleHero p{color:var(--muted);}
+.employeeConsoleHeader,
+.employeeConsoleRow{grid-template-columns:minmax(210px,1.7fr) minmax(105px,.75fr) minmax(110px,.75fr) minmax(140px,.95fr) 80px 95px;min-width:760px;}
+.employeeDetailCard{position:sticky;top:12px;}
+.employeeDetailActions{display:grid;grid-template-columns:1fr;gap:9px;}
+.employeeDetailActions button{justify-content:center;min-height:42px;}
+.employeeDetailActions button:last-child{border-color:#fecaca;color:#991b1b;background:#fff7f7;}
+@media(max-width:1100px){.dashboardInsightsGrid{grid-template-columns:1fr;}.employeeDetailCard{position:static;}}
+@media(max-width:760px){.employeeConsoleHeader,.employeeConsoleRow{min-width:0;grid-template-columns:1fr;}.dashboardInsightsGrid .leaderList{max-height:none;}}

@@ -632,7 +632,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} markThreadReadNow={markThreadReadNow} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
         {view === "Hall of Fame" && <HallOfFame ctx={ctx} access={access} />}
-        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} markThreadReadNow={markThreadReadNow} />)}
+        {view === "Dashboard" && (isMobile ? <MobileDashboard jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} onOpenHelpShortcut={() => openView("Mobile Manager")} /> : <Dashboard jobs={dailyJobs} allJobs={visibleJobs} ctx={ctx} metrics={metrics} selectedDate={selectedDate} access={access} reload={loadAll} onOpenMessages={() => openView("Messages")} markThreadReadNow={markThreadReadNow} setEditingJob={setEditingJob} />)}
         {view === "Schedule" && <Schedule jobs={dailyJobs} ctx={ctx} selectedDate={selectedDate} />}
         {view === "Outlook Calendar" && <OutlookCalendar jobs={visibleJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} setSelectedDate={setSelectedDate} access={access} />}
         {view === "Foreman" && <Foreman jobs={dailyJobs} ctx={ctx} reload={loadAll} selectedDate={selectedDate} access={access} />}
@@ -2284,7 +2284,7 @@ function DashboardMessagesPanel({ ctx, access, reload, onOpenMessages, markThrea
   );
 }
 
-function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages, markThreadReadNow }) {
+function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, reload, onOpenMessages, markThreadReadNow, setEditingJob }) {
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const requests = buildDashboardRequestItems(ctx, access);
 
@@ -2308,12 +2308,19 @@ function Dashboard({ jobs, allJobs = jobs, ctx, metrics, selectedDate, access, r
         <div className="dashboardMainStack">
           <div className="dashboardLiveFull">
             <Panel title="Live Technician Board" chip={`${openJobs.length} open`}>
-              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded />
+              <LiveTechnicianAvailability jobs={jobs} ctx={ctx} embedded onOpenJob={setEditingJob} />
             </Panel>
           </div>
 
           <CompactKpiStrip jobs={jobs} ctx={ctx} metrics={metrics} />
         </div>
+      </div>
+
+      <div className="dashboardInsightsGrid">
+        <WeeklyTrendPanel allJobs={allJobs} ctx={ctx} selectedDate={selectedDate} />
+        <Panel title="Weekly Leaderboard" chip={currentWeekLabel()}>
+          <TechLeaderboard jobs={currentWeekCompletedJobs(allJobs, ctx)} ctx={ctx} detailed statsOptions={{ sinceDate: currentWeekStartIso() }} />
+        </Panel>
       </div>
 
       <div className="dashboardTipBar">
@@ -4764,8 +4771,8 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
         <div className="employeeConsoleHero">
           <div>
             <p className="eyebrow">Admin Center</p>
-            <h3>Employee Control Center</h3>
-            <p>Track usage, reset passwords, edit roles, message employees, and spot who is not using the system.</p>
+            <h3>Employee Activity & Control</h3>
+            <p>One consolidated employee page for activity status, last active time, editing, password resets, direct messages, activation, and new employee setup.</p>
           </div>
           <button className="primary" onClick={startNewEmployee} disabled={saving}><Plus size={16} /> Add Employee</button>
         </div>
@@ -4789,7 +4796,7 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
         {loading ? <p className="muted">Loading employees...</p> : (
           <div className="employeeConsoleGrid">
             <div className="employeeConsoleList">
-              <div className="employeeConsoleHeader"><span>Employee</span><span>Role</span><span>Status</span><span>Last Activity</span><span>Today</span><span>Messages</span><span>Actions</span></div>
+              <div className="employeeConsoleHeader"><span>Employee</span><span>Role</span><span>Status</span><span>Last Active</span><span>Today</span><span>Messages</span></div>
               {filteredEmployees.map((employee) => (
                 <div className={`employeeConsoleRow ${selectedEmployee?.id === employee.id ? "selected" : ""}`} key={employee.id} onClick={() => setSelectedEmployeeId(employee.id)}>
                   <div className="employeeIdentity"><b>{employee.full_name || "Unnamed"}</b><small>{employee.linkedTech?.name ? `Tech: ${employee.linkedTech.name}` : employee.email || "No login shown"}</small></div>
@@ -4798,7 +4805,7 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
                   <div className="employeeActivityCell"><b>{employee.activity.lastActivity ? relativeTime(employee.activity.lastActivity) : "Never"}</b><small>{employee.activity.source}</small></div>
                   <span>{employee.activity.actionsToday}</span>
                   <span className={employee.unread ? "messageCount hot" : "messageCount"}>{employee.unread}</span>
-                  <span className="employeeQuickActions" onClick={(e) => e.stopPropagation()}><button onClick={() => setDraft({ ...employee, password: "" })}>Edit</button><button onClick={() => setPasswordDraft({ ...employee, password: "" })}>Password</button><button onClick={() => onOpenMessages?.(employee.id)}>Message</button></span>
+                  
                 </div>
               ))}
               {!filteredEmployees.length && !error && <p className="muted">No employees match that filter.</p>}
@@ -5047,7 +5054,6 @@ function Admin({ ctx, reload, access, onOpenMessages }) {
       </div>
 
       <EmployeeManagement ctx={ctx} access={access} reload={reload} onOpenMessages={onOpenMessages} />
-      <EmployeeActivityPanel ctx={ctx} />
       <MessagesAdminPanel ctx={ctx} access={access} reload={reload} />
 
       <div className="grid two">
@@ -8158,7 +8164,7 @@ function AccessGate({ technicians, onSave }) {
   );
 }
 
-function LiveTechnicianAvailability({ jobs, ctx, embedded = false }) {
+function LiveTechnicianAvailability({ jobs, ctx, embedded = false, onOpenJob = null }) {
   const now = new Date();
 
   function getTechCurrentJob(techId) {
@@ -8279,8 +8285,14 @@ function LiveTechnicianAvailability({ jobs, ctx, embedded = false }) {
             const product = !clockedIn ? "Not Available" : currentJob ? currentJob.helper_label || ctx.jobProductsSummary(currentJob) : "Available";
             const nextProduct = nextJob ? ctx.jobProductsSummary(nextJob) : "—";
 
+            const openableJob = currentJob || nextJob || null;
             return (
               <div
+                role={onOpenJob ? "button" : undefined}
+                tabIndex={onOpenJob ? 0 : undefined}
+                title={openableJob ? "Open job details and time log" : "No active or next job for this technician"}
+                onClick={() => { if (onOpenJob) { if (openableJob) onOpenJob(openableJob); else alert(`${tech.name} does not have an active or scheduled job to open.`); } }}
+                onKeyDown={(event) => { if (onOpenJob && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); if (openableJob) onOpenJob(openableJob); } }}
                 className={`availabilityRow ${
                   !clockedIn
                     ? "availabilityOffClock"
