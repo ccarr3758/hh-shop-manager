@@ -3454,6 +3454,7 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
   const [selectedTechId, setSelectedTechId] = useState(activeTechs[0]?.id || "");
   const canViewDevelopment = canViewTechnicianDevelopment(access);
   const [performanceMode, setPerformanceMode] = useState("performance");
+  const [performanceRange, setPerformanceRange] = useState("weekly");
 
   useEffect(() => {
     if (!selectedTechId && activeTechs[0]?.id) setSelectedTechId(activeTechs[0].id);
@@ -3464,11 +3465,12 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
   }, [canViewDevelopment, performanceMode]);
 
   const selectedTech = ctx.tech(selectedTechId) || activeTechs[0];
-  const performanceWeekStart = currentWeekStartIso();
-  const performanceWeekJobs = currentWeekCompletedJobs(jobs, ctx);
-  const performanceStats = getTechStats(performanceWeekJobs, ctx, null, { sinceDate: performanceWeekStart });
-  const shopRows = buildProductPerformanceRows(performanceWeekJobs, ctx, null);
-  const techRows = buildProductPerformanceRows(performanceWeekJobs, ctx, selectedTech?.id);
+  const performanceRangeConfig = getPerformanceRangeConfig(performanceRange);
+  const performanceJobs = getCompletedJobsForPerformanceRange(jobs, ctx, performanceRange);
+  const performanceStatsOptions = getPerformanceStatsOptions(performanceRangeConfig);
+  const performanceStats = getTechStats(performanceJobs, ctx, null, performanceStatsOptions);
+  const shopRows = buildProductPerformanceRows(performanceJobs, ctx, null);
+  const techRows = buildProductPerformanceRows(performanceJobs, ctx, selectedTech?.id);
 
   return (
     <section className="page">
@@ -3501,6 +3503,22 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
         )}
       </div>
 
+
+      {performanceMode === "performance" && (
+        <div className="performanceRangeBar" aria-label="Performance timeframe">
+          {PERFORMANCE_TIMEFRAMES.map((range) => (
+            <button
+              key={range.key}
+              className={performanceRange === range.key ? "active" : ""}
+              onClick={() => setPerformanceRange(range.key)}
+              type="button"
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {performanceMode === "development" && canViewDevelopment ? (
         <TechnicianDevelopmentCenter jobs={jobs} ctx={ctx} selectedTech={selectedTech} selectedTechId={selectedTechId} setSelectedTechId={setSelectedTechId} activeTechs={activeTechs} />
       ) : (
@@ -3519,15 +3537,15 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
                   </select>
                 </label>
               </div>
-              {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={performanceWeekJobs} ctx={ctx} rows={techRows} statsOptions={{ sinceDate: performanceWeekStart }} />}
+              {selectedTech && <TechnicianDashboard technician={selectedTech} jobs={performanceJobs} ctx={ctx} rows={techRows} statsOptions={performanceStatsOptions} rangeLabel={performanceRangeConfig.label} />}
             </Panel>
 
-            <Panel title="Weekly Leaderboard" chip={currentWeekLabel()}>
-              <TechLeaderboard jobs={performanceWeekJobs} ctx={ctx} detailed statsOptions={{ sinceDate: performanceWeekStart }} />
+            <Panel title={`${performanceRangeConfig.title} Leaderboard`} chip={performanceRangeConfig.chip}>
+              <TechLeaderboard jobs={performanceJobs} ctx={ctx} detailed statsOptions={performanceStatsOptions} rangeLabel={performanceRangeConfig.label} />
             </Panel>
           </div>
 
-          <Panel title="Average Job Times by Product" chip="This week">
+          <Panel title="Average Job Times by Product" chip={performanceRangeConfig.chip}>
             <PerformanceTable rows={shopRows} emptyText="Complete jobs with actual hours to build shop averages." />
           </Panel>
         </>
@@ -3536,7 +3554,7 @@ function PerformanceCenter({ jobs, ctx, metrics, access }) {
   );
 }
 
-function TechnicianDashboard({ technician, jobs, ctx, rows, statsOptions = {} }) {
+function TechnicianDashboard({ technician, jobs, ctx, rows, statsOptions = {}, rangeLabel = "Weekly" }) {
   const stats = getTechStats(jobs, ctx, technician.id, statsOptions);
   const records = rows
     .filter((r) => r.jobs > 0 && r.bestTime !== null)
@@ -3549,7 +3567,7 @@ function TechnicianDashboard({ technician, jobs, ctx, rows, statsOptions = {} })
         <div className="techAvatarLarge">{technician.name.slice(0, 2)}</div>
         <div>
           <h2>{technician.name}</h2>
-          <p>{technician.role || "Technician"}</p>
+          <p>{technician.role || "Technician"} • {rangeLabel}</p>
         </div>
         <strong className={effClass(stats.efficiency)}>{Math.round(stats.efficiency)}%</strong>
       </div>
@@ -6481,6 +6499,71 @@ function getNoComebackStreak(ctx, technicianId) {
     count += 1;
   }
   return count;
+}
+
+const PERFORMANCE_TIMEFRAMES = [
+  { key: "weekly", label: "Weekly", title: "Weekly" },
+  { key: "monthly", label: "Monthly", title: "Monthly" },
+  { key: "90d", label: "90 Days", title: "90-Day" },
+  { key: "6m", label: "6 Months", title: "6-Month" },
+  { key: "1y", label: "1 Year", title: "1-Year" },
+  { key: "lifetime", label: "Lifetime", title: "Lifetime" },
+];
+
+function getPerformanceRangeConfig(rangeKey) {
+  const base = PERFORMANCE_TIMEFRAMES.find((range) => range.key === rangeKey) || PERFORMANCE_TIMEFRAMES[0];
+  const today = new Date();
+  let start = null;
+  let chip = "All recorded performance data";
+
+  if (base.key === "weekly") {
+    start = currentWeekStartDate(today);
+    chip = dateRangeLabel(start, addDays(start, 6));
+  } else if (base.key === "monthly") {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+    chip = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  } else if (base.key === "90d") {
+    start = addDays(today, -89);
+    chip = `Last 90 days • ${dateRangeLabel(start, today)}`;
+  } else if (base.key === "6m") {
+    start = addMonths(today, -6);
+    chip = `Last 6 months • ${dateRangeLabel(start, today)}`;
+  } else if (base.key === "1y") {
+    start = addMonths(today, -12);
+    chip = `Last 1 year • ${dateRangeLabel(start, today)}`;
+  }
+
+  if (start) start.setHours(0, 0, 0, 0);
+  return { ...base, startDate: start ? toIsoDate(start) : null, chip };
+}
+
+function getPerformanceStatsOptions(config) {
+  return config?.startDate ? { sinceDate: config.startDate } : {};
+}
+
+function getCompletedJobsForPerformanceRange(jobs, ctx, rangeKey) {
+  const config = getPerformanceRangeConfig(rangeKey);
+  return jobs.filter((job) => {
+    if (!ctx.isComplete(job.status_id)) return false;
+    const completedAt = job.production_completed_at || job.updated_at || job.created_at;
+    if (!completedAt) return false;
+    const d = new Date(completedAt);
+    if (Number.isNaN(d.getTime())) return false;
+    if (!config.startDate) return true;
+    return d >= new Date(`${config.startDate}T00:00:00`);
+  });
+}
+
+function addMonths(date, months) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+function dateRangeLabel(start, end) {
+  const startLabel = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const endLabel = end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${startLabel}–${endLabel}`;
 }
 
 function currentMonthCompletedJobs(jobs, ctx) {
