@@ -887,6 +887,79 @@ function MobileStyles() {
       .techClockRow span { display: block; margin-top: 2px; color: #64748b; font-size: 12px; font-weight: 800; }
       .techClockRow b { color: #0f172a; }
       .techClockActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+      /* Shared mobile-manager/job-queue polish for desktop and tablet widths. */
+      .mobileApp { padding: 18px; background: #070d1c; min-height: calc(100vh - 84px); }
+      .mobileAppHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; padding: 20px 22px; border-radius: 24px; background: linear-gradient(135deg, #111827, #263449); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 18px 46px rgba(0,0,0,.20); }
+      .mobileAppHeader p { margin: 0 0 7px; color: #f97316; font-size: 12px; font-weight: 1000; letter-spacing: .22em; text-transform: uppercase; }
+      .mobileAppHeader h1 { margin: 0; color: #fff; font-size: 28px; line-height: 1.05; letter-spacing: -.04em; }
+      .mobileAppHeader strong { min-width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; background: #f97316; color: #fff; font-size: 30px; box-shadow: 0 12px 26px rgba(249,115,22,.30); }
+      .mobileManagerTools { display: grid; gap: 12px; margin: 0 0 16px; padding: 16px; border-radius: 22px; background: linear-gradient(135deg, #111827, #1f2937); border: 1px solid rgba(255,255,255,.10); }
+      .mobileManagerToolsHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .mobileManagerToolsHead strong { color: #fff; font-size: 16px; }
+      .mobileManagerToolsHead span { color: #94a3b8; font-size: 12px; font-weight: 900; }
+      .mobileManagerToolGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+      .mobileManagerToolGrid button { min-height: 42px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #f8fafc; color: #0f172a; font-weight: 1000; box-shadow: 0 8px 18px rgba(0,0,0,.10); }
+      .mobileTabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
+      .mobileTabs button { min-height: 42px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 0 18px; background: #1f2937; color: #cbd5e1; font-weight: 1000; }
+      .mobileTabs button.active { background: #f97316; color: white; border-color: #f97316; }
+      .mobileJobList { display: grid; gap: 14px; }
+      .mobileJob.selectable { position: relative; overflow: hidden; display: grid; grid-template-columns: 8px 1fr; gap: 0; padding: 0; border-radius: 22px; background: #f8fafc; border: 1px solid rgba(255,255,255,.10); box-shadow: 0 14px 34px rgba(0,0,0,.22); cursor: pointer; }
+      .mobileJob.selectable.active { box-shadow: 0 18px 38px rgba(34,197,94,.14), 0 14px 34px rgba(0,0,0,.22); }
+      .mobileJobStatusRail { width: 8px; min-height: 100%; }
+      .mobileJobCompact { display: grid; gap: 10px; padding: 18px 20px; }
+      .mobileJobMainLine { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+      .mobileJobMainLine > div { min-width: 0; }
+      .mobileJobMainLine h2 { margin: 0; color: #0f172a; font-size: 24px; line-height: 1.05; letter-spacing: -.03em; }
+      .mobileJobMainLine p { margin: 4px 0 0; color: #64748b; font-size: 14px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mobilePill { flex: 0 0 auto; padding: 6px 11px; border-radius: 999px; font-size: 11px; font-weight: 1000; }
+      .mobileJobSubline { display: flex; align-items: center; gap: 8px; min-width: 0; color: #475569; font-size: 14px; font-weight: 900; }
+      .mobileJobSubline span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mobileQueueMeta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .mobileQueueMeta span { min-width: 0; padding: 10px 12px; border-radius: 14px; background: #eef2f7; color: #0f172a; font-size: 14px; font-weight: 1000; }
+      .mobileQueueMeta b { display: block; margin-bottom: 4px; color: #64748b; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+      .mobileQueueMeta em { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; }
+      .mobileProgressTrack { width: 100%; height: 7px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+      .mobileProgressFill { height: 100%; width: 0%; border-radius: inherit; background: #94a3b8; transition: width .25s ease; }
+      .mobileProgressFill.onTrack { background: #16a34a; }
+      .mobileProgressFill.nearLimit { background: #f97316; }
+      .mobileProgressFill.overBook { background: #dc2626; }
+      .mobileQueueActions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
+      .mobileQueueActions button { min-height: 44px; border: 1px solid rgba(15,23,42,.12); border-radius: 14px; background: white; color: #0f172a; font-size: 14px; font-weight: 1000; }
+      .mobileQueueActions button.complete { background: #f97316; color: white; border-color: #f97316; box-shadow: 0 10px 18px rgba(249,115,22,.23); }
+      .mobileHiddenDetailActions { display: none; }
+      .mobileEmpty { padding: 20px; border-radius: 22px; background: #f8fafc; color: #0f172a; }
+      .mobileSelfHelperPanel { margin: 0; padding: 14px; border-radius: 18px; background: #f8fafc; border: 1px solid rgba(15,23,42,.12); }
+      .mobileSelfHelperPanel strong { display: block; color: #0f172a; font-size: 15px; }
+      .mobileSelfHelperPanel span { display: block; margin-top: 3px; color: #64748b; font-size: 12px; font-weight: 900; }
+      .mobileSelfHelperGrid { display: grid; grid-template-columns: 1fr 130px; gap: 10px; margin-top: 10px; }
+      .mobileSelfHelperPanel select, .mobileSelfHelperPanel input { width: 100%; min-height: 42px; border-radius: 12px; border: 1px solid rgba(15,23,42,.14); padding: 0 10px; background: white; color: #0f172a; font-size: 14px; font-weight: 800; }
+      .mobileSelfHelperActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+      .mobileSelfHelperActions button { min-height: 42px; border: 0; border-radius: 12px; background: #f97316; color: white; font-size: 13px; font-weight: 1000; }
+      .mobileSelfHelperActions button.secondary { background: #e2e8f0; color: #0f172a; }
+      .mobileSelfHelperActions button.stop { background: #dc2626; color: white; }
+      .jobDetailsSummary { display: grid; gap: 12px; padding: 16px; border-radius: 18px; background: #f8fafc; border: 1px solid rgba(15,23,42,.10); }
+      .jobDetailsSummaryTop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .jobDetailsSummaryTop h2 { margin: 0; color: #0f172a; font-size: 26px; line-height: 1.05; letter-spacing: -.04em; }
+      .jobDetailsSummaryTop p { margin: 4px 0 0; color: #64748b; font-weight: 900; }
+      .jobDetailsSummaryMeta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .jobDetailsSummaryMeta span { min-width: 0; padding: 10px; border-radius: 13px; background: #eef2f7; color: #0f172a; font-weight: 1000; }
+      .jobDetailsSummaryMeta b { display: block; margin-bottom: 4px; color: #64748b; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+      .jobDetailsQuickActions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px; border-radius: 18px; background: #fff7ed; border: 1px solid rgba(249,115,22,.22); }
+      .jobDetailsQuickActions button { min-height: 42px; border: 1px solid rgba(15,23,42,.10); border-radius: 13px; background: #fff; color: #0f172a; font-weight: 1000; }
+      .jobDetailsQuickActions button.primaryAction { background: #f97316; color: white; border-color: #f97316; }
+      .jobDetailsQuickActions button.complete { background: #16a34a; color: white; border-color: #16a34a; }
+      .jobDetailsQuickActions button:disabled { opacity: .55; cursor: not-allowed; }
+      .jobDetailsFields { display: grid; gap: 10px; }
+      .jobDetailsFields label { display: grid; gap: 6px; color: #334155; font-weight: 1000; }
+      .jobDetailsFields input, .jobDetailsFields select, .jobDetailsFields textarea { width: 100%; border: 1px solid rgba(15,23,42,.12); border-radius: 14px; padding: 12px; background: #fff; color: #0f172a; font-weight: 900; }
+      .jobDetailsFields textarea { min-height: 92px; resize: vertical; }
+      .jobDetailsTimeLog { padding: 14px; border-radius: 18px; background: #f8fafc; border: 1px solid rgba(15,23,42,.10); }
+      .jobDetailsTimeLog h4 { margin: 0 0 10px; color: #0f172a; font-size: 18px; }
+      .jobDetailsTimeGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .jobDetailsTimeGrid span { padding: 10px; border-radius: 13px; background: #fff; border: 1px solid rgba(15,23,42,.10); color: #0f172a; font-weight: 900; }
+      .jobDetailsTimeGrid b { display: block; margin-bottom: 4px; color: #64748b; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+
       @media (max-width: 768px) {
         html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: auto; touch-action: pan-y; }
         body { background: #070d1c; -webkit-tap-highlight-color: transparent; }
@@ -1015,7 +1088,7 @@ function MobileStyles() {
         .panel, .hero, .adminHero, .performanceHero, .mobileHero { border-radius: 18px !important; padding: 14px !important; }
         .grid.two, .cards3, .kpis, .formGrid { display: grid !important; grid-template-columns: 1fr !important; gap: 10px !important; }
         .modalBackdrop { position: fixed !important; inset: 0 !important; z-index: 300 !important; padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom)) !important; align-items: flex-end !important; background: rgba(7,13,28,.62) !important; }
-        .modal { width: 100% !important; max-width: none !important; max-height: calc(100vh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important; overflow: hidden !important; display: flex !important; flex-direction: column !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
+        .modal { width: 100% !important; max-width: none !important; max-height: calc(100vh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important; overflow-y: auto !important; overflow-x: hidden !important; display: flex !important; flex-direction: column !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
         .modalHeader { flex: 0 0 auto !important; }
         .modal .formGrid { flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; padding-bottom: 16px !important; }
         .modal > button.primary.wide { flex: 0 0 auto !important; position: static !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; min-height: 58px !important; margin: 12px 0 0 !important; border-radius: 16px !important; background: #f97316 !important; color: #fff !important; opacity: 1 !important; visibility: visible !important; box-shadow: 0 12px 28px rgba(249,115,22,.24) !important; }
@@ -1027,6 +1100,11 @@ function MobileStyles() {
         .accessGate { min-height: 100vh; display: grid; place-items: center; padding: 18px; background: #070d1c; }
         .accessPanel { width: min(520px, 100%); border-radius: 22px; padding: 18px; background: #f8fafc; }
         .accessPanel label { display: grid; gap: 6px; margin: 12px 0; font-weight: 900; color: #0f172a; }
+
+        .jobDetailsSummaryMeta, .jobDetailsTimeGrid { grid-template-columns: 1fr 1fr !important; }
+        .jobDetailsQuickActions { grid-template-columns: 1fr 1fr !important; }
+        .jobDetailsQuickActions button.complete { grid-column: 1 / -1; }
+        .jobDetailsSummaryTop h2 { font-size: 22px !important; }
 
         .phoneHeader { padding: calc(10px + env(safe-area-inset-top)) 18px 10px !important; align-items: center !important; }
         .phoneHeader .eyebrow { font-size: 10px !important; letter-spacing: .20em !important; color: #f97316 !important; }
@@ -6055,31 +6133,37 @@ Rolled over from ${sourceDate} to ${nextDate}. Book timer paused at ${activeHour
             <button type="button" onClick={onClose}>×</button>
           </div>
 
-          <div className="formGrid">
-            <label>
-              Customer
-              <input value={draft.customer} readOnly />
-            </label>
-            <label>
-              Vehicle
-              <input value={draft.vehicle} readOnly />
-            </label>
-            <label>
-              Product
-              <input value={ctx.jobProductsSummary(job)} readOnly />
-            </label>
-            <label>
-              Book Hours
-              <input value={Number(job.book_hours || 0).toFixed(2)} readOnly />
-            </label>
-            <label>
-              Status
-              <input value={ctx.status(job.status_id)?.name || ""} readOnly />
-            </label>
-            <label>
-              Scheduled Date
-              <input value={draft.scheduled_date} readOnly />
-            </label>
+          <div className="jobDetailsSummary">
+            <div className="jobDetailsSummaryTop">
+              <div>
+                <h2>{job.vehicle || job.customer || "Untitled Job"}</h2>
+                <p>{draft.customer || "No customer listed"}</p>
+              </div>
+              <span className="mobilePill" style={{ background: `${ctx.status(job.status_id)?.color || "#64748b"}22`, color: ctx.status(job.status_id)?.color || "#64748b" }}>
+                {ctx.status(job.status_id)?.name || "—"}
+              </span>
+            </div>
+            <div className="jobDetailsSummaryMeta">
+              <span><b>Product</b>{ctx.jobProductsSummary(job) || "—"}</span>
+              <span><b>Tech</b>{ctx.tech(job.technician_id)?.name || "Unassigned"}</span>
+              <span><b>Book</b>{Number(job.book_hours || 0).toFixed(2)} hr</span>
+              <span><b>Start</b>{formatTime(job.start_time)}</span>
+            </div>
+          </div>
+
+          <div className="jobDetailsQuickActions">
+            {(ctx.status(job.status_id)?.name === "Paused" || ctx.status(job.status_id)?.name === "Rolled Over") ? (
+              <button type="button" className="primaryAction" onClick={resumeJobFromDetails}>Resume</button>
+            ) : (
+              <button type="button" className="primaryAction" onClick={() => setJobStatusFromDetails("In Progress")}>Start</button>
+            )}
+            <button type="button" onClick={pauseJobFromDetails}>Pause</button>
+            <button type="button" onClick={roadblockJobFromDetails}>Roadblock</button>
+            <button type="button" onClick={rollOverJobFromDetails}>Roll Over</button>
+            <button type="button" className="complete" onClick={completeJobFromDetails}>Complete</button>
+          </div>
+
+          <div className="jobDetailsFields">
             <label>
               QC
               <select value={draft.qc} onChange={(e) => setDraft({ ...draft, qc: e.target.value })}>
@@ -6088,9 +6172,9 @@ Rolled over from ${sourceDate} to ${nextDate}. Book timer paused at ${activeHour
                 <option>N/A</option>
               </select>
             </label>
-            <label className="fullWidth">
+            <label>
               Job Details / Notes
-              <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+              <textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
             </label>
           </div>
 
@@ -6104,22 +6188,7 @@ Rolled over from ${sourceDate} to ${nextDate}. Book timer paused at ${activeHour
             </div>
           </div>
 
-          <div className="jobDetailsActionPanel">
-            <h4>Actions</h4>
-            <div className="jobDetailsActionGrid">
-              {(ctx.status(job.status_id)?.name === "Paused" || ctx.status(job.status_id)?.name === "Rolled Over") ? (
-                <button type="button" className="primary" onClick={resumeJobFromDetails}>Resume Job</button>
-              ) : (
-                <button type="button" onClick={() => setJobStatusFromDetails("In Progress")}>Start Job</button>
-              )}
-              <button type="button" onClick={pauseJobFromDetails}>Pause Job</button>
-              <button type="button" onClick={roadblockJobFromDetails}>Roadblock</button>
-              <button type="button" onClick={rollOverJobFromDetails}>Roll Over</button>
-              <button type="button" className="complete" onClick={completeJobFromDetails}>Complete Job</button>
-            </div>
-          </div>
-
-          <button className="primary wide">Save Job Details</button>
+          <button className="primary wide">Save Notes / QC</button>
         </form>
       </div>
     );
