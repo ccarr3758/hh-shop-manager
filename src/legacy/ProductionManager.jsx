@@ -8038,6 +8038,10 @@ function normalizeRole(role) {
   return "technician";
 }
 
+function getAllowedViews(access) {
+  return getAllowedViewNames(access);
+}
+
 function getAllowedViewNames(access) {
   const role = normalizeRole(access?.role);
   const sharedTechViews = ["Dashboard", "Mobile Manager", "Performance", "Messages", "Hall of Fame", "Notifications"];
