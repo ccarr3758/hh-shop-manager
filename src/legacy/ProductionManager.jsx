@@ -5857,6 +5857,171 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
   const primaryProductId = productLines[0]?.product_id || null;
   const technicianDetailsOnly = isTechnicianOnly(access) || Boolean(job.__detailsOnly);
 
+  const getStatusId = (name) =>
+    ctx.statuses.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
+
+  async function setJobStatusFromDetails(statusName, extraPayload = {}) {
+    const statusId = getStatusId(statusName);
+    if (!statusId) return alert(`Missing status: ${statusName}`);
+    const previousStatus = ctx.status(job.status_id)?.name || "Unknown";
+    const now = new Date().toISOString();
+    const payload = {
+      status_id: statusId,
+      updated_at: now,
+      ...extraPayload,
+    };
+
+    if (statusName === "In Progress" && !job.production_started_at) {
+      payload.production_started_at = now;
+    }
+
+    const { error } = await supabase.from("jobs").update(payload).eq("id", job.id);
+    if (error) return alert(error.message);
+
+    await logAuditEvent(ctx, access, {
+      action: `Job status changed to ${statusName}`,
+      entityType: "job",
+      entityId: job.id,
+      summary: `${jobDisplayName(job, ctx)} changed from ${previousStatus} to ${statusName}`,
+      metadata: { job_id: job.id, previousStatus, statusName },
+    });
+
+    await reload();
+    onClose();
+  }
+
+  async function pauseJobFromDetails() {
+    const reason = window.prompt("Pause reason? Examples: Waiting on parts, Waiting on approval, Helping another technician, Lunch / Break");
+    if (!reason || !reason.trim()) return;
+    await setJobStatusFromDetails("Paused", {
+      pause_started_at: new Date().toISOString(),
+      pause_reason: reason.trim(),
+      production_started_at: job.production_started_at || new Date().toISOString(),
+    });
+  }
+
+  async function resumeJobFromDetails() {
+    const nowDate = new Date();
+    const pauseStarted = job.pause_started_at ? new Date(job.pause_started_at) : null;
+    const additionalPaused = pauseStarted && !Number.isNaN(pauseStarted.getTime())
+      ? Math.max(0, Math.round((nowDate - pauseStarted) / 1000))
+      : 0;
+    await setJobStatusFromDetails("In Progress", {
+      total_paused_seconds: Number(job.total_paused_seconds || 0) + additionalPaused,
+      pause_started_at: null,
+      pause_reason: null,
+    });
+  }
+
+  async function roadblockJobFromDetails() {
+    const pending = getPendingRoadblockExtensionRequest(ctx, job.id);
+    if (pending) return alert("A roadblock request is already pending for this job.");
+    const reason = window.prompt("Roadblock reason? The job will stay In Progress; use Pause only when work actually stops.");
+    if (!reason || !reason.trim()) return;
+    const requestedRaw = window.prompt("Requested extension time in minutes (example: 15, 30, 45, 60):", "30");
+    if (requestedRaw === null) return;
+    const requestedMinutes = Math.max(1, Math.round(Number(requestedRaw)));
+    if (!Number.isFinite(requestedMinutes) || requestedMinutes <= 0) return alert("Enter a valid number of minutes.");
+
+    const techName = ctx.tech(job.technician_id)?.name || access?.fullName || "Technician";
+    await createAppNotification(ctx, access, {
+      type: "roadblock_extension_request",
+      title: "Roadblock Extension Requested",
+      body: `${techName} requested +${requestedMinutes} min on ${jobDisplayName(job, ctx)}. Reason: ${reason.trim()}`,
+      jobId: job.id,
+      technicianId: null,
+      audienceRoles: managerAudience(),
+      metadata: {
+        status: "pending",
+        request_id: `${job.id}-${Date.now()}`,
+        requested_minutes: requestedMinutes,
+        approved_minutes: requestedMinutes,
+        reason: reason.trim(),
+        requested_by: techName,
+        requested_by_technician_id: job.technician_id || access?.technicianId || null,
+        requested_at: new Date().toISOString(),
+        current_book_hours: Number(job.book_hours || 0),
+        current_pause_reason: job.pause_reason || null,
+        job_status_when_requested: ctx.status(job.status_id)?.name || null,
+      },
+    });
+
+    await logAuditEvent(ctx, access, {
+      action: "Roadblock extension requested",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${techName} requested +${requestedMinutes} min. Reason: ${reason.trim()}`,
+      metadata: { job_id: job.id, requestedMinutes, reason: reason.trim() },
+    });
+    notifyUser(`Roadblock requested: +${requestedMinutes} min`);
+    await reload();
+  }
+
+  async function rollOverJobFromDetails() {
+    const sourceDate = job.scheduled_date || todayIso();
+    const nextDate = addDaysIso(sourceDate, 1);
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const activeHours = roundHours(getActiveElapsedHours(job, nowDate));
+    const remainingBookHours = roundHours(Math.max(0, getAdjustedBookHours(job) - activeHours));
+    const pausedId = getStatusId("Paused");
+    const payload = {
+      scheduled_date: nextDate,
+      start_time: ctx.shopSettings?.shop_open || "08:00",
+      pause_started_at: job.pause_started_at || now,
+      pause_reason: "Rolled over to next work day",
+      production_started_at: job.production_started_at || now,
+      notes: `${job.notes || ""}
+Rolled over from ${sourceDate} to ${nextDate}. Book timer paused at ${activeHours.toFixed(2)} active hrs; ${remainingBookHours.toFixed(2)} book hrs remaining.`.trim(),
+      updated_at: now,
+    };
+    if (pausedId) payload.status_id = pausedId;
+    const { error } = await supabase.from("jobs").update(payload).eq("id", job.id);
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job rolled over",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${jobDisplayName(job, ctx)} rolled to ${nextDate} and book timer paused`,
+      metadata: { nextDate, sourceDate, activeHours, remainingBookHours },
+    });
+    notifyUser(`Rolled to ${nextDate} • book timer paused`);
+    await reload();
+    onClose();
+  }
+
+  async function completeJobFromDetails() {
+    const completedId = getStatusId("Completed");
+    if (!completedId) return alert("Missing status: Completed");
+    const now = new Date();
+    const startedAt = getJobStartedAt(job) || getScheduledStartDate(job) || now;
+    const actualHours = roundHours(getActiveElapsedHours(job, now, startedAt));
+    const adjustedBook = getAdjustedBookHours(job);
+    const efficiency = actualHours ? (adjustedBook / actualHours) * 100 : 0;
+    const { error } = await supabase.from("jobs").update({
+      status_id: completedId,
+      actual_hours: actualHours,
+      active_time_hours: actualHours,
+      production_started_at: job.production_started_at || startedAt.toISOString(),
+      production_completed_at: now.toISOString(),
+      pause_started_at: null,
+      pause_reason: null,
+      qc: "Yes",
+      updated_at: now.toISOString(),
+    }).eq("id", job.id);
+    if (error) return alert(error.message);
+    await logAuditEvent(ctx, access, {
+      action: "Job completed",
+      entityType: "job",
+      entityId: job.id,
+      summary: `${jobDisplayName(job, ctx)} completed with ${actualHours} active hrs`,
+      metadata: { actualHours, adjustedBook, efficiency },
+    });
+    notifyUser(`Completed: ${job.vehicle || "job"} • ${actualHours} active hrs`);
+    await reload();
+    onClose();
+  }
+
   async function saveTechJobDetails(e) {
     e.preventDefault();
 
@@ -5936,6 +6101,21 @@ function EditJobModal({ job, ctx, reload, onClose, access }) {
               <span><b>Book Hours</b>{Number(job.book_hours || 0).toFixed(2)}</span>
               <span><b>Actual Hours</b>{job.actual_hours == null ? "—" : Number(job.actual_hours || 0).toFixed(2)}</span>
               <span><b>Status</b>{ctx.status(job.status_id)?.name || "—"}</span>
+            </div>
+          </div>
+
+          <div className="jobDetailsActionPanel">
+            <h4>Actions</h4>
+            <div className="jobDetailsActionGrid">
+              {(ctx.status(job.status_id)?.name === "Paused" || ctx.status(job.status_id)?.name === "Rolled Over") ? (
+                <button type="button" className="primary" onClick={resumeJobFromDetails}>Resume Job</button>
+              ) : (
+                <button type="button" onClick={() => setJobStatusFromDetails("In Progress")}>Start Job</button>
+              )}
+              <button type="button" onClick={pauseJobFromDetails}>Pause Job</button>
+              <button type="button" onClick={roadblockJobFromDetails}>Roadblock</button>
+              <button type="button" onClick={rollOverJobFromDetails}>Roll Over</button>
+              <button type="button" className="complete" onClick={completeJobFromDetails}>Complete Job</button>
             </div>
           </div>
 

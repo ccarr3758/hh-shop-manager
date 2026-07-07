@@ -1852,3 +1852,43 @@ button:not(.primary):not(.sidebarButton) {
   .performanceRangeBar{overflow-x:auto;flex-wrap:nowrap;padding:8px}
   .performanceRangeBar button{flex:0 0 auto}
 }
+
+.jobDetailsActionPanel {
+  margin: 12px 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  border-radius: 16px;
+  background: #fff7ed;
+}
+.jobDetailsActionPanel h4 {
+  margin: 0 0 10px;
+  color: #9a3412;
+}
+.jobDetailsActionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.jobDetailsActionGrid button {
+  min-height: 48px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  font-weight: 900;
+  color: #0f172a;
+}
+.jobDetailsActionGrid button.primary {
+  background: #f97316;
+  border-color: #f97316;
+  color: #ffffff;
+}
+.jobDetailsActionGrid button.complete {
+  grid-column: 1 / -1;
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+@media (max-width: 760px) {
+  .jobDetailsActionGrid { grid-template-columns: 1fr 1fr; }
+  .jobDetailsActionGrid button { min-height: 50px; }
+}
