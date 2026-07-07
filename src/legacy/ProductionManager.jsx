@@ -589,7 +589,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
           <header className="phoneHeader">
             <div>
               <img className="phoneHeaderLogo" src="/brand/hh-shield.png" alt="H&H" />
-              <h2>{view}</h2>
+              <h2>{getMobileViewTitle(view, access)}</h2>
               <input className="phoneDatePicker" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
             </div>
             <div className="phoneHeaderActions">
@@ -628,7 +628,7 @@ export default function ProductionManager({ authProfile, onSignOut }) {
   <PerformanceCenter jobs={state.jobs} ctx={ctx} metrics={metrics} access={access} />
 )}
         {view === "Mobile Manager" && (
-          <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} />
+          <MobileManager jobs={dailyJobs} allJobs={allDailyJobs} ctx={ctx} reload={loadAll} setEditingJob={setEditingJob} selectedDate={selectedDate} access={access} openView={openView} />
         )}
         {view === "Notifications" && <NotificationsCenter ctx={ctx} access={access} reload={loadAll} />}
         {view === "Messages" && <MessagesCenter ctx={ctx} access={access} reload={loadAll} markThreadReadNow={markThreadReadNow} initialRecipientId={messageRecipientId} onRecipientConsumed={() => setMessageRecipientId("")} />}
@@ -963,6 +963,46 @@ function MobileStyles() {
         .mobileActionGrid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 9px !important; }
         .mobileActionGrid button { min-height: 54px !important; border-radius: 13px !important; border: 0 !important; font-size: 16px !important; font-weight: 900 !important; background: #dbe2ec !important; color: #0f172a !important; }
         .mobileActionGrid button.complete { grid-column: 1 / -1 !important; background: #16a34a !important; color: white !important; }
+        .mobileManagerTools { display: grid; gap: 10px; margin: 0 0 12px; padding: 12px; border-radius: 18px; background: linear-gradient(135deg, #111827, #1f2937); border: 1px solid rgba(255,255,255,.10); }
+        .mobileManagerToolsHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .mobileManagerToolsHead strong { color: #fff; font-size: 15px; }
+        .mobileManagerToolsHead span { color: #94a3b8; font-size: 11px; font-weight: 900; }
+        .mobileManagerToolGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .mobileManagerToolGrid button { min-height: 42px; border: 0; border-radius: 12px; background: #f8fafc; color: #0f172a; font-size: 12px; font-weight: 1000; }
+        .mobileJobCompact { display: grid; gap: 9px; }
+        .mobileJobMainLine { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .mobileJobMainLine h2 { flex: 1 1 auto; min-width: 0; font-size: 18px !important; line-height: 1.12 !important; }
+        .mobileJobMainLine .mobilePill { flex: 0 0 auto; }
+        .mobileJobSubline { display: flex; align-items: center; gap: 8px; min-width: 0; color: #475569; font-size: 13px; font-weight: 900; }
+        .mobileJobSubline span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mobileCompactStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+        .mobileCompactStats div { min-width: 0; padding: 8px 7px; border-radius: 12px; background: #eef2f7; }
+        .mobileCompactStats span { display: block; color: #64748b; font-size: 9px; font-weight: 1000; letter-spacing: .08em; text-transform: uppercase; }
+        .mobileCompactStats strong { display: block; margin-top: 2px; color: #0f172a; font-size: 13px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mobileCompactActions { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 7px !important; }
+        .mobileCompactActions button { min-height: 40px !important; border-radius: 11px !important; font-size: 12px !important; padding: 0 5px !important; }
+        .mobileCompactActions button.complete { grid-column: auto !important; }
+        .mobileJob.compact { padding: 11px !important; border-radius: 16px !important; }
+        .mobileJob.compact .mobileProgressTrack { margin: 2px 0 0 !important; height: 5px; }
+        .mobileJob.compact .mobileDamagePanel { margin: 0 !important; padding: 8px 9px !important; border-radius: 12px !important; }
+        .mobileJob.compact .mobileDamageHead strong { font-size: 12px; }
+        .mobileJob.compact .mobileDamageUpload { min-height: 34px; padding: 0 9px; font-size: 11px; }
+
+        .mobileJob.selectable { position: relative; overflow: hidden; display: grid; grid-template-columns: 7px 1fr; gap: 0; padding: 0 !important; border-radius: 18px !important; background: #f8fafc !important; cursor: pointer; }
+        .mobileJob.selectable .mobileJobCompact { padding: 12px 12px 11px; }
+        .mobileJob.selectable.active { box-shadow: 0 16px 34px rgba(34,197,94,.18), 0 12px 28px rgba(0,0,0,.24); }
+        .mobileJobStatusRail { width: 7px; min-height: 100%; }
+        .mobileJobMainLine > div { min-width: 0; }
+        .mobileJobMainLine p { margin: 3px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; font-size: 12px; font-weight: 900; }
+        .mobileQueueMeta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+        .mobileQueueMeta span { min-width: 0; padding: 8px 8px; border-radius: 12px; background: #eef2f7; color: #0f172a; font-size: 12px; font-weight: 1000; }
+        .mobileQueueMeta b { display: block; margin-bottom: 3px; color: #64748b; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+        .mobileQueueMeta em { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; }
+        .mobileQueueActions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
+        .mobileQueueActions button { min-height: 40px; border: 1px solid rgba(15,23,42,.12); border-radius: 13px; background: white; color: #0f172a; font-size: 13px; font-weight: 1000; }
+        .mobileQueueActions button.complete { background: #f97316; color: white; border-color: #f97316; box-shadow: 0 10px 18px rgba(249,115,22,.23); }
+        .mobileHiddenDetailActions { display: none; }
+
         .phoneInstallHint { position: fixed; left: 10px; right: 10px; bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 120; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 16px; background: #fff7ed; color: #9a3412; border: 1px solid rgba(249,115,22,.3); box-shadow: 0 12px 30px rgba(0,0,0,.25); font-size: 12px; font-weight: 900; }
         .phoneInstallHint button { border: 0; border-radius: 999px; padding: 8px 10px; background: #f97316; color: white; font-size: 12px; font-weight: 1000; }
         .phoneBottomNav { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 100; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; padding: 5px; border-radius: 18px; background: rgba(15, 23, 42, .96); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 14px 30px rgba(0,0,0,.34); }
@@ -1044,9 +1084,24 @@ function MobileStyles() {
   );
 }
 
-function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selectedDate, access }) {
+function getMobileViewTitle(view, access) {
+  const role = normalizeRole(access?.role);
+  if (view === "Mobile Manager") {
+    if (role === "technician") return "My Jobs";
+    if (role === "foreman") return "Foreman Mobile";
+    return "Manager Mobile";
+  }
+  return view;
+}
+
+function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selectedDate, access, openView }) {
   const [filter, setFilter] = useState("Open");
   const currentMinute = useCurrentMinute();
+  const role = normalizeRole(access?.role);
+  const isTechnician = role === "technician";
+  const isManagement = canEditJobs(access);
+  const managerTools = ["Dashboard", "Schedule", "Foreman", "Production Log", "Technicians", "Tech Clock", "Products", "Admin", "Cloud Status"]
+    .filter((name) => openView && getAllowedViews(access).includes(name));
 
   const openJobs = jobs.filter((j) => !ctx.isComplete(j.status_id));
   const shownJobs = sortJobsByEarliestStart(
@@ -1364,51 +1419,39 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
 
 
   async function rollJobToNextDay(job) {
-    const remainingBookHours = getRemainingBookHoursForRollover(job, ctx);
-    if (remainingBookHours <= 0) return alert("This job does not have any book time left to roll over after today.");
-
-    const nextDate = addDaysIso(job.scheduled_date || selectedDate || todayIso(), 1);
-    const todayBookHours = getBookHoursThatFitToday(job, ctx);
-    const rolledJob = {
-      company_id: job.company_id,
-      customer: job.customer,
-      vehicle: job.vehicle,
-      product_id: job.product_id,
-      technician_id: job.technician_id,
-      status_id: job.status_id,
-      delay_reason_id: job.delay_reason_id || null,
-      start_time: ctx.shopSettings?.shop_open || "08:00",
-      book_hours: remainingBookHours,
-      actual_hours: null,
-      qc: job.qc || "N/A",
+    const sourceDate = job.scheduled_date || selectedDate || todayIso();
+    const nextDate = addDaysIso(sourceDate, 1);
+    const pausedId = getStatusId("Paused");
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const activeHours = roundHours(getActiveElapsedHours(job, nowDate));
+    const remainingBookHours = roundHours(Math.max(0, getAdjustedBookHours(job) - activeHours));
+    const updatePayload = {
       scheduled_date: nextDate,
-      labor_sold: job.labor_sold || null,
-      notes: `${job.notes || ""}\nRolled over from ${job.scheduled_date || selectedDate || todayIso()}. Original job ${job.book_hours} book hrs; ${remainingBookHours} hrs remaining.`.trim(),
-      outlook_event_id: job.outlook_event_id || null,
-      updated_at: new Date().toISOString(),
+      start_time: ctx.shopSettings?.shop_open || "08:00",
+      pause_started_at: job.pause_started_at || now,
+      pause_reason: "Rolled over to next work day",
+      production_started_at: job.production_started_at || now,
+      notes: `${job.notes || ""}
+Rolled over from ${sourceDate} to ${nextDate}. Book timer paused at ${activeHours.toFixed(2)} active hrs; ${remainingBookHours.toFixed(2)} book hrs remaining.`.trim(),
+      updated_at: now,
     };
+    if (pausedId) updatePayload.status_id = pausedId;
 
-    const { error: insertError } = await supabase.from("jobs").insert(rolledJob);
-    if (insertError) return alert(insertError.message);
-
-    const { error: updateError } = await supabase
+    const { error } = await supabase
       .from("jobs")
-      .update({
-        book_hours: todayBookHours,
-        notes: `${job.notes || ""}\nRolled ${remainingBookHours} hrs to ${nextDate}.`.trim(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", job.id);
 
-    if (updateError) return alert(updateError.message);
+    if (error) return alert(error.message);
     await logAuditEvent(ctx, access, {
       action: "Job rolled over",
       entityType: "job",
       entityId: job.id,
-      summary: `${job.vehicle || "Job"} rolled to ${nextDate}`,
-      metadata: { nextDate, remainingBookHours, todayBookHours },
+      summary: `${job.vehicle || "Job"} rolled to ${nextDate} and book timer paused`,
+      metadata: { nextDate, sourceDate, activeHours, remainingBookHours },
     });
-    notifyUser(`Rolled ${job.vehicle || "job"} to ${nextDate}`);
+    notifyUser(`Rolled ${job.vehicle || "job"} to ${nextDate} • book timer paused`);
     await reload();
   }
 
@@ -1627,10 +1670,24 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
       <header className="mobileAppHeader">
         <div>
           <p>H&H Production</p>
-          <h1>{selectedDate === todayIso() ? "Manager View" : selectedDate}</h1>
+          <h1>{selectedDate === todayIso() ? (isTechnician ? "Assigned Jobs" : "Manager Tools") : selectedDate}</h1>
         </div>
         <strong>{openJobs.length}</strong>
       </header>
+
+      {isManagement && managerTools.length > 0 && (
+        <div className="mobileManagerTools">
+          <div className="mobileManagerToolsHead">
+            <strong>Management Resources</strong>
+            <span>{managerTools.length} tools</span>
+          </div>
+          <div className="mobileManagerToolGrid">
+            {managerTools.map((tool) => (
+              <button key={tool} onClick={() => openView(tool)}>{tool}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mobileTabs">
         {["Open", "Scheduled", "In Progress", "Paused", "QC"].map((x) => (
@@ -1659,87 +1716,67 @@ function MobileManager({ jobs, allJobs = jobs, ctx, reload, setEditingJob, selec
           const productName = ctx.jobProductsSummary(job);
           const tech = ctx.tech(job.technician_id);
           const status = ctx.status(job.status_id);
-          const projected = getJobProjectedFinish(job, ctx);
+          const statusName = status?.name || "Unknown";
           const timing = getMobileJobTiming(job, ctx, currentMinute);
+          const pendingRequest = getPendingExtensionRequest(job);
+          const canResume = ["Paused", "Rolled Over"].includes(statusName);
+          const startLabel = canResume ? "Resume" : "Start";
+
+          function openDetails() {
+            setEditingJob({ ...job, __detailsOnly: !canEditJobs(access) });
+          }
 
           return (
-            <article className="mobileJob" key={job.id}>
-              <div className="mobileJobTop">
-                <span
-                  className="mobilePill"
-                  style={{
-                    background: `${status?.color || "#64748b"}22`,
-                    color: status?.color || "#64748b",
-                  }}
-                >
-                  {status?.name || "Unknown"}
-                </span>
-                <b>{tech?.name || "Unassigned"}</b>
+            <article className={`mobileJob selectable ${statusName === "In Progress" ? "active" : ""}`} key={job.id} onClick={openDetails}>
+              <div className="mobileJobStatusRail" style={{ background: status?.color || "#f97316" }} />
+              <div className="mobileJobCompact">
+                <div className="mobileJobMainLine">
+                  <div>
+                    <h2>{job.vehicle || job.customer || "Untitled Job"}</h2>
+                    <p>{job.customer || "No customer listed"}</p>
+                  </div>
+                  <span
+                    className="mobilePill"
+                    style={{
+                      background: `${status?.color || "#64748b"}22`,
+                      color: status?.color || "#64748b",
+                    }}
+                  >
+                    {statusName}
+                  </span>
+                </div>
+
+                <div className="mobileJobSubline">
+                  <span>{isTechnician ? (productName || "No product listed") : `${tech?.name || "Unassigned"} • ${productName || "No product listed"}`}</span>
+                  <b>›</b>
+                </div>
+
+                <div className="mobileQueueMeta">
+                  <span><b>Book</b>{Number(job.book_hours || 0).toFixed(1)} hr</span>
+                  <span><b>Start</b>{getEffectiveJobStartLabel(job)}</span>
+                  <span><b>{timing.isOver ? "Over" : "Left"}</b><em className={timing.isOver ? "remainingOver" : "remainingOk"}>{timing.remainingLabel}</em></span>
+                </div>
+
+                <div className="mobileProgressTrack" aria-label="Job progress">
+                  <div
+                    className={`mobileProgressFill ${timing.progressClass}`}
+                    style={{ width: `${timing.progressPercent}%` }}
+                  />
+                </div>
+
+                <div className="mobileQueueActions" onClick={(event) => event.stopPropagation()}>
+                  <button onClick={() => canResume ? resumeJob(job) : updateStatus(job, "In Progress")}>{startLabel}</button>
+                  <button className="complete" onClick={() => completeJob(job)}>Finish</button>
+                </div>
+
+                <div className="mobileHiddenDetailActions" onClick={(event) => event.stopPropagation()}>
+                  <button onClick={() => pauseJob(job)}>Pause</button>
+                  <button disabled={Boolean(pendingRequest)} onClick={() => requestRoadblockExtension(job)}>{pendingRequest ? "Roadblock Requested" : "Roadblock"}</button>
+                  {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
+                  {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
+                  <button onClick={openDetails}>Details</button>
+                </div>
               </div>
-
-              <h2>{job.vehicle}</h2>
-              <div className="mobileTechName">👤 {tech?.name || "Unassigned"}</div>
-              <p>{productName}</p>
-
-              <div className="mobileProgressTrack" aria-label="Job progress">
-                <div
-                  className={`mobileProgressFill ${timing.progressClass}`}
-                  style={{ width: `${timing.progressPercent}%` }}
-                />
-              </div>
-
-              <div className="mobileMetaGrid">
-                <div>
-                  <span>Start</span>
-                  <strong>{getEffectiveJobStartLabel(job)}</strong>
-                </div>
-                <div className="mobileBookCard">
-                  <span>Book Time</span>
-                  <strong>{Number(job.book_hours || 0).toFixed(1)} hr{Number(job.book_hours || 0) === 1 ? "" : "s"}</strong>
-                </div>
-                <div>
-                  <span>Finish</span>
-                  <strong>{formatTime(projected.finishTime)}{projected.dayOffset ? ` +${projected.dayOffset}d` : ""}</strong>
-                </div>
-                <div className="mobileRemainingCard">
-                  <span>Time Remaining</span>
-                  <strong className={timing.isOver ? "remainingOver" : "remainingOk"}>{timing.remainingLabel}</strong>
-                </div>
-                <div>
-                  <span>Customer</span>
-                  <strong>{job.customer}</strong>
-                </div>
-                <div>
-                  <span>QC</span>
-                  <strong>{job.qc || "N/A"}</strong>
-                </div>
-              </div>
-
-              <DamagePhotoPanel job={job} ctx={ctx} onUpload={uploadDamagePhotos} />
-              <div className="mobileActionGrid">
-                <button onClick={() => updateStatus(job, "In Progress")}>Start</button>
-                {canEditJobs(access) && <button onClick={() => editJobStartTime(job)}>Edit Start</button>}
-                {ctx.status(job.status_id)?.name === "Paused" ? <button onClick={() => resumeJob(job)}><Play size={16} /> Resume Job</button> : <button onClick={() => pauseJob(job)}><Pause size={16} /> Pause Job</button>}
-                <button
-                  disabled={Boolean(getPendingExtensionRequest(job))}
-                  onClick={() => requestRoadblockExtension(job)}
-                >
-                  {getPendingExtensionRequest(job) ? "Extension Requested" : "Roadblock"}
-                </button>
-                <button onClick={() => setEditingJob(job)}>{canEditJobs(access) ? "Edit" : "Job Details"}</button>
-                {canEditJobs(access) && <button onClick={() => rollJobToNextDay(job)}>Roll Over</button>}
-                <button className="complete" onClick={() => completeJob(job)}>
-                  Complete
-                </button>
-              </div>
-
-              <HelperControls
-                job={job}
-                ctx={ctx}
-                onAddHelper={addHelperToJob}
-                onEndHelper={endHelperOnJob}
-                onRemoveHelper={removeHelperFromJob}
-              />
             </article>
           );
         })}
@@ -2079,10 +2116,11 @@ function getPulseState({ efficiency, capacity, activeJobs, overdueJobs, requestC
 function getDashboardTiming(job, ctx) {
   const finish = getJobProjectedFinish(job, ctx);
   const finishMinutes = timeStringToMinutes(finish.finishTime);
-  const now = getCurrentMinuteOfDay();
-  const openToday = !finish.dayOffset;
-  const overdue = openToday && finishMinutes < now && !ctx.isComplete(job.status_id);
-  return { finish, finishMinutes, overdue };
+  const activeHours = getActiveElapsedHours(job);
+  const bookHours = getAdjustedBookHours(job);
+  const paused = Boolean(job?.pause_started_at) || ctx.status(job?.status_id)?.name === "Paused";
+  const overdue = !paused && bookHours > 0 && activeHours > bookHours && !ctx.isComplete(job.status_id);
+  return { finish, finishMinutes, overdue, activeHours, bookHours, paused };
 }
 
 function ShopPulseCard({ jobs, allJobs, ctx, metrics, selectedDate, requestCount }) {
@@ -2509,9 +2547,12 @@ function formatDurationFromMinutes(minutes) {
 function getMobileJobTiming(job, ctx, currentMinute = getCurrentMinuteOfDay()) {
   const projected = getJobProjectedFinish(job, ctx);
   const startedAt = getJobStartedAt(job);
-  const startMinute = timeStringToMinutes(getEffectiveJobStartTime(job));
-  const finishMinute = projected.dayOffset > 0 ? getShopSchedule(ctx).close : timeStringToMinutes(projected.finishTime);
-  const totalMinutes = Math.max(1, finishMinute - startMinute);
+  const activeMinutes = Math.max(0, Math.round(getActiveElapsedHours(job) * 60));
+  const bookMinutes = Math.max(1, Math.round(getAdjustedBookHours(job) * 60));
+  const remainingMinutes = Math.round(bookMinutes - activeMinutes);
+  const paused = Boolean(job?.pause_started_at) || ctx.status(job?.status_id)?.name === "Paused";
+  const progressPercent = Math.min(100, Math.max(0, (activeMinutes / bookMinutes) * 100));
+  const isOver = !paused && remainingMinutes < 0;
 
   if (!startedAt) {
     return {
@@ -2522,15 +2563,19 @@ function getMobileJobTiming(job, ctx, currentMinute = getCurrentMinuteOfDay()) {
     };
   }
 
-  const rawRemaining = finishMinute - currentMinute;
-  const elapsed = Math.max(0, currentMinute - startMinute);
-  const progressPercent = Math.min(100, Math.max(0, (elapsed / totalMinutes) * 100));
-  const isOver = rawRemaining < 0 && projected.dayOffset === 0;
+  if (paused) {
+    return {
+      remainingLabel: `${formatDurationFromMinutes(Math.max(0, remainingMinutes))} remaining • paused`,
+      isOver: false,
+      progressPercent,
+      progressClass: "paused",
+    };
+  }
 
   return {
     remainingLabel: isOver
-      ? `Over by ${formatDurationFromMinutes(Math.abs(rawRemaining))}`
-      : `${formatDurationFromMinutes(rawRemaining)} remaining`,
+      ? `Over by ${formatDurationFromMinutes(Math.abs(remainingMinutes))}`
+      : `${formatDurationFromMinutes(remainingMinutes)} remaining`,
     isOver,
     progressPercent: isOver ? 100 : progressPercent,
     progressClass: isOver ? "overBook" : progressPercent >= 85 ? "nearLimit" : "onTrack",
@@ -6255,11 +6300,17 @@ function ProductLinesEditor({ ctx, lines, setLines, lockBookTime = false, hideLa
 
   function changeProduct(index, productId) {
     const product = ctx.product(productId);
-    updateLine(index, {
-      product_id: productId,
-      book_hours: Number(product?.book_hours || 0),
-      labor_price: Number(product?.labor_price || 0),
-    });
+    const next = safeLines.map((line, i) =>
+      i === index
+        ? {
+            ...line,
+            product_id: productId,
+            book_hours: Number(product?.book_hours ?? 0),
+            labor_price: Number(product?.labor_price ?? 0),
+          }
+        : line
+    );
+    setLines(normalizeProductLines(ctx, next, true));
   }
 
   function addProduct() {
@@ -6943,7 +6994,7 @@ function getActiveElapsedHours(job, nowDate = new Date(), fallbackStart = null) 
   const currentPauseSeconds = currentPauseStarted && !Number.isNaN(currentPauseStarted.getTime())
     ? Math.max(0, Math.round((nowDate - currentPauseStarted) / 1000))
     : 0;
-  const activeSeconds = Math.max(60, totalSeconds - storedPaused - currentPauseSeconds);
+  const activeSeconds = Math.max(0, totalSeconds - storedPaused - currentPauseSeconds);
   return activeSeconds / 3600;
 }
 
@@ -7868,6 +7919,7 @@ async function rollForwardOverdueJobs(companyId, jobs, statuses) {
   const completeIds = statuses
     .filter((s) => (s.name || "").toLowerCase().includes("complete"))
     .map((s) => s.id);
+  const pausedId = statuses.find((s) => (s.name || "").toLowerCase() === "paused")?.id || null;
 
   const overdue = jobs.filter(
     (job) =>
@@ -7878,15 +7930,34 @@ async function rollForwardOverdueJobs(companyId, jobs, statuses) {
 
   if (!overdue.length) return jobs;
 
-  const { error } = await supabase
-    .from("jobs")
-    .update({ scheduled_date: today, updated_at: new Date().toISOString() })
-    .eq("company_id", companyId)
-    .in("id", overdue.map((job) => job.id));
+  const now = new Date().toISOString();
+  for (const job of overdue) {
+    const previousDate = job.scheduled_date;
+    const updatePayload = {
+      scheduled_date: today,
+      start_time: job.start_time || "08:00",
+      updated_at: now,
+    };
 
-  if (error) {
-    console.error(error);
-    return jobs;
+    // If a live job crossed into a new day, freeze book-time at the previous shop close.
+    // This prevents overnight/weekend calendar time from making it look severely overdue.
+    if (job.production_started_at && !job.pause_started_at) {
+      const closeTime = "18:00";
+      updatePayload.pause_started_at = `${previousDate}T${closeTime}:00`;
+      updatePayload.pause_reason = "Rolled over overnight";
+      if (pausedId) updatePayload.status_id = pausedId;
+    }
+
+    const { error } = await supabase
+      .from("jobs")
+      .update(updatePayload)
+      .eq("company_id", companyId)
+      .eq("id", job.id);
+
+    if (error) {
+      console.error(error);
+      return jobs;
+    }
   }
 
   const { data, error: reloadError } = await supabase
