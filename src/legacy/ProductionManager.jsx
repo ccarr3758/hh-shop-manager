@@ -4778,8 +4778,13 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
   }, [canManageEmployees, ctx.company?.id]);
 
   async function invokeAdminApi(action, payload = {}) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) throw new Error("Not authenticated. Please sign out and sign back in.");
+
     const { data, error } = await supabase.functions.invoke("admin-api", {
       body: { action, company_id: ctx.company.id, ...payload },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
