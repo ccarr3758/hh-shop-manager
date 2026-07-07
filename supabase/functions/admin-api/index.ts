@@ -27,7 +27,10 @@ Deno.serve(async (req) => {
     if (!publishableKey) return json({ error: "Missing publishable/anon key." }, 500);
     if (!secretKey) return json({ error: "Missing HH_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEYS." }, 500);
 
-    const authHeader = req.headers.get("Authorization") || "";
+    const directAuthToken = req.headers.get("x-supabase-auth-token") || "";
+    const authHeader = directAuthToken
+      ? `Bearer ${directAuthToken}`
+      : (req.headers.get("Authorization") || "");
     if (!authHeader.toLowerCase().startsWith("bearer ")) {
       return json({ error: "Missing Authorization bearer token." }, 401);
     }
@@ -230,6 +233,9 @@ function getPublishableKey(req: Request) {
   const headerKey = req.headers.get("apikey");
   if (headerKey) return headerKey.trim();
 
+  const explicit = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  if (explicit) return explicit.trim();
+
   const legacy = Deno.env.get("SUPABASE_ANON_KEY");
   if (legacy) return legacy.trim();
 
@@ -256,6 +262,9 @@ function getSecretKey() {
       if (typeof value === "string") return value.trim();
     } catch (_) {}
   }
+
+  const singleSecret = Deno.env.get("SUPABASE_SECRET_KEY");
+  if (singleSecret) return singleSecret.trim();
 
   const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (legacy) return legacy.trim();

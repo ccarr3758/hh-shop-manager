@@ -4782,11 +4782,29 @@ function EmployeeManagement({ ctx, access, reload, onOpenMessages }) {
     const accessToken = sessionData?.session?.access_token;
     if (!accessToken) throw new Error("Not authenticated. Please sign out and sign back in.");
 
-    const { data, error } = await supabase.functions.invoke("admin-api", {
-      body: { action, company_id: ctx.company.id, ...payload },
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const adminPayload = { action, company_id: ctx.company.id, ...payload };
+    const functionUrl = `${SUPABASE_URL}/functions/v1/admin-api`;
+    const response = await fetch(functionUrl, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        "x-supabase-auth-token": accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(adminPayload),
     });
-    if (error) throw error;
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = {};
+    }
+
+    if (!response.ok) {
+      throw new Error(data?.error || `Admin API failed with ${response.status}.`);
+    }
     if (data?.error) throw new Error(data.error);
     return data;
   }
