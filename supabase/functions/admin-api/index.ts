@@ -19,18 +19,15 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
 
   try {
-    const supabaseUrl = getSupabaseUrl(req);
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const publishableKey = getPublishableKey(req);
     const secretKey = getSecretKey();
 
-    if (!supabaseUrl) return json({ error: "Missing Supabase project URL. Could not read built-in SUPABASE_URL or derive it from the function host." }, 500);
+    if (!supabaseUrl) return json({ error: "Missing SUPABASE_URL." }, 500);
     if (!publishableKey) return json({ error: "Missing publishable/anon key." }, 500);
     if (!secretKey) return json({ error: "Missing HH_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEYS." }, 500);
 
-    const directAuthToken = req.headers.get("x-supabase-auth-token") || "";
-    const authHeader = directAuthToken
-      ? `Bearer ${directAuthToken}`
-      : (req.headers.get("Authorization") || "");
+    const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.toLowerCase().startsWith("bearer ")) {
       return json({ error: "Missing Authorization bearer token." }, 401);
     }
@@ -229,42 +226,9 @@ async function verifyEmployeeCompany(userClient: any, userId: string, companyId:
   return !error && !!data;
 }
 
-
-function getSupabaseUrl(req: Request) {
-  // New Supabase projects reserve SUPABASE_* names. Some deployments may not expose
-  // SUPABASE_URL to user code the same way older examples expected.
-  // Prefer the built-in when available, then fall back to a custom non-reserved
-  // secret, then derive the project API URL from the Edge Function host.
-  const builtIn = Deno.env.get("SUPABASE_URL");
-  if (builtIn) return builtIn.trim();
-
-  const custom = Deno.env.get("HH_SUPABASE_URL");
-  if (custom) return custom.trim();
-
-  const host =
-    req.headers.get("x-forwarded-host") ||
-    req.headers.get("host") ||
-    "";
-
-  // Hosted Edge Function URL usually looks like:
-  // <project-ref>.functions.supabase.co
-  const functionsMatch = host.match(/^([a-z0-9-]+)\.functions\.supabase\.co$/i);
-  if (functionsMatch?.[1]) return `https://${functionsMatch[1]}.supabase.co`;
-
-  // Alternate gateway style:
-  // <project-ref>.supabase.co/functions/v1/admin-api
-  const apiMatch = host.match(/^([a-z0-9-]+)\.supabase\.co$/i);
-  if (apiMatch?.[1]) return `https://${apiMatch[1]}.supabase.co`;
-
-  return "";
-}
-
 function getPublishableKey(req: Request) {
   const headerKey = req.headers.get("apikey");
   if (headerKey) return headerKey.trim();
-
-  const explicit = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
-  if (explicit) return explicit.trim();
 
   const legacy = Deno.env.get("SUPABASE_ANON_KEY");
   if (legacy) return legacy.trim();
@@ -292,9 +256,6 @@ function getSecretKey() {
       if (typeof value === "string") return value.trim();
     } catch (_) {}
   }
-
-  const singleSecret = Deno.env.get("SUPABASE_SECRET_KEY");
-  if (singleSecret) return singleSecret.trim();
 
   const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (legacy) return legacy.trim();
